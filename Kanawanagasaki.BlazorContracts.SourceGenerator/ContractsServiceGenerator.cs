@@ -9,6 +9,12 @@ using System.Text;
 [Generator]
 public class ContractsServiceGenerator : IIncrementalGenerator
 {
+    private static readonly SymbolDisplayFormat SYMB_DISPLAY_FORMAT_GENERICS = new
+    (
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var handlersDeclarations = context.SyntaxProvider.CreateSyntaxProvider
@@ -53,7 +59,7 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             {
                 foreach (var param in constructor.Parameters)
                 {
-                    var fullname = $"{param.Type.ContainingNamespace}.{param.Type.Name}";
+                    var fullname = param.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS);
 
                     if (!injectedServices.ContainsKey(fullname))
                         injectedServices[fullname] = $"_injected_service_" + (injectedServices.Count + 1);

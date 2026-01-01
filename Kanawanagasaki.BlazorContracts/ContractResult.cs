@@ -1,5 +1,6 @@
 ﻿namespace Kanawanagasaki.BlazorContracts;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
 public class ContractResult
@@ -30,6 +31,9 @@ public class ContractResult
 public class ContractResult<TData> : ContractResult
 {
     public TData? Data { get; set; }
+
+    [MemberNotNullWhen(true, nameof(Data))]
+    public bool IsSuccessWithData => IsSuccess && Data is not null;
 
     public ContractResult() : base(200) { }
 

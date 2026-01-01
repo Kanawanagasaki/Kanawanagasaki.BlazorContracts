@@ -4,8 +4,15 @@ using Microsoft.CodeAnalysis;
 
 internal record HandlerTypeMetadata
 {
-    private static readonly SymbolDisplayFormat SYMB_DISPLAY_FORMAT
-         = new(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
+    private static readonly SymbolDisplayFormat SYMB_DISPLAY_FORMAT = new
+    (
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces
+    );
+    private static readonly SymbolDisplayFormat SYMB_DISPLAY_FORMAT_GENERICS = new
+    (
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters
+    );
 
     internal string HandlerName { get; }
     internal string HandlerFullyQualifiedName { get; }
@@ -37,7 +44,7 @@ internal record HandlerTypeMetadata
         Verb = verb;
 
         var constructor = handler.Constructors.FirstOrDefault(x => x.DeclaredAccessibility is Accessibility.Public);
-        HandlerInjectedServicesTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(SYMB_DISPLAY_FORMAT)).ToArray() ?? [];
+        HandlerInjectedServicesTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS)).ToArray() ?? [];
 
         var props = GetAllProperties(contract);
         ByteArrayProps = props.Where(x => x.Type is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
@@ -48,7 +55,7 @@ internal record HandlerTypeMetadata
                            .ToArray();
 
         foreach (var prop in props)
-            PropNameToType[prop.Name] = prop.Type.ToDisplayString(SYMB_DISPLAY_FORMAT);
+            PropNameToType[prop.Name] = prop.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS);
 
         foreach (var iface in contract.AllInterfaces)
         {
