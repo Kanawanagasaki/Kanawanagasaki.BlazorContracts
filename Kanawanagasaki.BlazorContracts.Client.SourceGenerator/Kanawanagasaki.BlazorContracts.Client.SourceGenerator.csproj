@@ -9,7 +9,7 @@
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<IncludeBuildOutput>false</IncludeBuildOutput>
 		<PackageId>Kanawanagasaki.BlazorContracts.Client.SourceGenerator</PackageId>
-		<Version>1.0.1</Version>
+		<Version>1.0.2</Version>
 		<Authors>Kanawanagasaki</Authors>
 		<Description>Blazor contracts, Blazor WASM source generator</Description>
 

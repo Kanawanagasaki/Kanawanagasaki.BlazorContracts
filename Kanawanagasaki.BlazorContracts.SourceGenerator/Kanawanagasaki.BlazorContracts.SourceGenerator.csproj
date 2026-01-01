@@ -9,7 +9,7 @@
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<IncludeBuildOutput>false</IncludeBuildOutput>
 		<PackageId>Kanawanagasaki.BlazorContracts.SourceGenerator</PackageId>
-		<Version>1.0.1</Version>
+		<Version>1.0.2</Version>
 		<Authors>Kanawanagasaki</Authors>
 		<Description>Blazor contracts, ASP.NET Core source generator</Description>
 
