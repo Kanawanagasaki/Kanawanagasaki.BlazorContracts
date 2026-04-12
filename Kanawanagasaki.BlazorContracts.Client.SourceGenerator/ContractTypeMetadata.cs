@@ -12,6 +12,7 @@ internal record ContractTypeMetadata
     internal string Endpoint { get; }
     internal string Verb { get; }
 
+    internal IPropertySymbol[] AllProperties { get; }
     internal string[] ByteArrayProps { get; }
     internal string[] StreamProps { get; }
 
@@ -25,7 +26,8 @@ internal record ContractTypeMetadata
         Endpoint = endpoint;
         Verb = verb;
 
-        var props = GetAllProperties(type);
+        var props = GetAllProperties(type).ToArray();
+        AllProperties = props;
         ByteArrayProps = props.Where(x => x.Type is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
                               .Select(x => x.Name)
                               .ToArray();

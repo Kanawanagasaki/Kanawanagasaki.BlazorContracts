@@ -80,7 +80,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             public class ClientContractsService : Kanawanagasaki.BlazorContracts.IContractsService
             {
-                private readonly System.Net.Http.HttpClient _http;
+                protected readonly System.Net.Http.HttpClient _http;
                 private readonly System.Text.Json.JsonSerializerOptions _jsonOptions;
 
                 public ClientContractsService(Microsoft.AspNetCore.Components.NavigationManager navMgr)
@@ -297,7 +297,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         iw.WriteLine("""
                 }
 
-                private async System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> InternalProcessAsync(Kanawanagasaki.BlazorContracts.IContract req)
+                protected async System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> InternalProcessAsync(Kanawanagasaki.BlazorContracts.IContract req)
                 {
                     System.Net.Http.HttpMethod method;
                     string endpoint;
@@ -318,7 +318,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                                               .ToArray();
 
             foreach (var routePart in routeParts)
-                endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{routePart}.ToString())}}");
+                endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{routePart}?.ToString() ?? string.Empty)}}");
 
             iw.IndentLevel = 3;
             iw.WriteLine($"case {contract.FullyQualifiedName} _contract_{i + 1}:");
@@ -327,6 +327,76 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     method = System.Net.Http.HttpMethod.{{contract.Verb}};
                     endpoint = $"{{endpoint}}";
                 """);
+
+            if (contract.Verb == "Get" || contract.Verb == "Delete")
+            {
+                iw.WriteLine("var query = new System.Collections.Generic.List<string>();");
+                foreach (var prop in contract.AllProperties)
+                {
+                    if (routeParts.Contains(prop.Name)) continue;
+
+                    var propName = prop.Name;
+                    var propType = prop.Type;
+
+                    if (IsSimpleType(propType))
+                    {
+                        var isNullable = propType.NullableAnnotation == NullableAnnotation.Annotated || !propType.IsValueType;
+                        if (isNullable)
+                        {
+                            iw.WriteLine($"if (_contract_{i + 1}.{propName} is not null) query.Add(\"{propName}=\" + System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{propName}.ToString()));");
+                        }
+                        else
+                        {
+                            iw.WriteLine($"query.Add(\"{propName}=\" + System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{propName}.ToString()));");
+                        }
+                    }
+                    else if (propType is IArrayTypeSymbol arrayType)
+                    {
+                        iw.WriteLine($"if (_contract_{i + 1}.{propName} is not null)");
+                        iw.WriteLine("{");
+                        iw.IndentLevel++;
+                        iw.WriteLine($"foreach (var item in _contract_{i + 1}.{propName})");
+                        iw.WriteLine("{");
+                        iw.IndentLevel++;
+                        if (arrayType.ElementType.IsValueType && arrayType.ElementType.NullableAnnotation != NullableAnnotation.Annotated)
+                        {
+                            iw.WriteLine($"query.Add(\"{propName}=\" + System.Web.HttpUtility.UrlEncode(item.ToString()));");
+                        }
+                        else
+                        {
+                            iw.WriteLine($"if (item is not null) query.Add(\"{propName}=\" + System.Web.HttpUtility.UrlEncode(item.ToString()));");
+                        }
+                        iw.DecreaseAndWriteLine("}");
+                        iw.DecreaseAndWriteLine("}");
+                    }
+                    else
+                    {
+                        // Complex object, 1 level deep
+                        iw.WriteLine($"if (_contract_{i + 1}.{propName} is not null)");
+                        iw.WriteLine("{");
+                        iw.IndentLevel++;
+                        var subProps = ContractTypeMetadata.GetAllProperties(propType as INamedTypeSymbol);
+                        foreach (var subProp in subProps)
+                        {
+                            if (IsSimpleType(subProp.Type))
+                            {
+                                var isSubNullable = subProp.Type.NullableAnnotation == NullableAnnotation.Annotated || !subProp.Type.IsValueType;
+                                if (isSubNullable)
+                                {
+                                    iw.WriteLine($"if (_contract_{i + 1}.{propName}.{subProp.Name} is not null) query.Add(\"{propName}.{subProp.Name}=\" + System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{propName}.{subProp.Name}.ToString()));");
+                                }
+                                else
+                                {
+                                    iw.WriteLine($"query.Add(\"{propName}.{subProp.Name}=\" + System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{propName}.{subProp.Name}.ToString()));");
+                                }
+                            }
+                        }
+                        iw.DecreaseAndWriteLine("}");
+                    }
+                }
+                iw.WriteLine("if (query.Count > 0) endpoint += \"?\" + string.Join(\"&\", query);");
+            }
+
             if (contract.Verb == "Post" || contract.Verb == "Put")
             {
                 if (0 < contract.ByteArrayProps.Length || 0 < contract.StreamProps.Length)
@@ -450,5 +520,42 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             foreach (var t in GetAllNestedTypes(nested))
                 yield return t;
         }
+    }
+
+    private static bool IsSimpleType(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol) return false;
+
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Boolean:
+            case SpecialType.System_Byte:
+            case SpecialType.System_Char:
+            case SpecialType.System_DateTime:
+            case SpecialType.System_Decimal:
+            case SpecialType.System_Double:
+            case SpecialType.System_Int16:
+            case SpecialType.System_Int32:
+            case SpecialType.System_Int64:
+            case SpecialType.System_SByte:
+            case SpecialType.System_Single:
+            case SpecialType.System_String:
+            case SpecialType.System_UInt16:
+            case SpecialType.System_UInt32:
+            case SpecialType.System_UInt64:
+                return true;
+        }
+
+        if (type.TypeKind == TypeKind.Enum) return true;
+
+        if (type is INamedTypeSymbol named && named.NullableAnnotation == NullableAnnotation.Annotated && named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            return IsSimpleType(named.TypeArguments[0]);
+        }
+
+        var fullName = type.ToDisplayString();
+        if (fullName == "System.Guid" || fullName == "System.TimeSpan" || fullName == "System.DateTimeOffset") return true;
+
+        return false;
     }
 }

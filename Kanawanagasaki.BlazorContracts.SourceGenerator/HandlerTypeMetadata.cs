@@ -21,6 +21,7 @@ internal record HandlerTypeMetadata
     internal string Endpoint { get; }
     internal string Verb { get; }
 
+    internal IPropertySymbol[] AllProperties { get; }
     internal string[] HandlerInjectedServicesTypes { get; }
     internal Dictionary<string, string> PropNameToType { get; } = new();
 
@@ -46,7 +47,8 @@ internal record HandlerTypeMetadata
         var constructor = handler.Constructors.FirstOrDefault(x => x.DeclaredAccessibility is Accessibility.Public);
         HandlerInjectedServicesTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS)).ToArray() ?? [];
 
-        var props = GetAllProperties(contract);
+        var props = GetAllProperties(contract).ToArray();
+        AllProperties = props;
         ByteArrayProps = props.Where(x => x.Type is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
                               .Select(x => x.Name)
                               .ToArray();

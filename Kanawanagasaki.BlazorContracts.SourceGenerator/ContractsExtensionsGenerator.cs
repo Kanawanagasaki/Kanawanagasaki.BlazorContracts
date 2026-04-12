@@ -159,6 +159,10 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 else
                     iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromBody] {item.ContractFullyQualifiedName} __contract,");
             }
+            else if (item.Verb == "Get" || item.Verb == "Delete")
+            {
+                iw.WriteLine($"[Microsoft.AspNetCore.Http.AsParameters] {item.ContractFullyQualifiedName} __contract,");
+            }
 
             if (item.IsByteArrayReturnType || item.IsStreamReturnType)
                 iw.WriteLine("Microsoft.AspNetCore.Http.HttpResponse __httpResponse,");
@@ -167,9 +171,12 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 .Where(x => 2 < x.Length && x[0] == '{' && x[x.Length - 1] == '}')
                 .Select(x => x.Substring(1, x.Length - 2))
                 .ToArray();
-            foreach (var routePart in routeParts)
-                if (item.PropNameToType.TryGetValue(routePart, out var propTypeFullname))
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {propTypeFullname} {routePart},");
+            if (item.Verb != "Get" && item.Verb != "Delete")
+            {
+                foreach (var routePart in routeParts)
+                    if (item.PropNameToType.TryGetValue(routePart, out var propTypeFullname))
+                        iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {propTypeFullname} {routePart},");
+            }
 
             for (int i = 0; i < item.HandlerInjectedServicesTypes.Length; i++)
                 iw.WriteLine($"{item.HandlerInjectedServicesTypes[i]} __injectedService_{i + 1},");
@@ -238,16 +245,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 }
             }
 
-            if (item.Verb == "Get" || item.Verb == "Delete")
-            {
-                iw.WriteLine($"var __contract = new {item.ContractFullyQualifiedName}");
-                iw.WriteLine("{");
-                iw.IndentLevel++;
-                foreach (var routePart in routeParts)
-                    iw.WriteLine($"{routePart} = {routePart},");
-                iw.DecreaseAndWriteLine("};");
-            }
-            else if (0 < routeParts.Length)
+            if (item.Verb != "Get" && item.Verb != "Delete" && 0 < routeParts.Length)
             {
                 foreach (var routePart in routeParts)
                     iw.WriteLine($"__contract.{routePart} = {routePart};");
