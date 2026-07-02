@@ -1,8 +1,8 @@
 {
-  "profiles": {
-    "Profile 1": {
-      "commandName": "DebugRoslynComponent",
-      "targetProject": "..\\Kanawanagasaki.BlazorContracts.AspNet\\Kanawanagasaki.BlazorContracts.AspNet.csproj"
+    "profiles": {
+        "DebugRoslynComponent": {
+            "commandName": "DebugRoslynComponent",
+            "targetProject": "..\\Kanawanagasaki.BlazorContracts.Demo\\Kanawanagasaki.BlazorContracts.Demo.csproj"
+        }
     }
-  }
 }

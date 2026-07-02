@@ -22,84 +22,86 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             static (ctx, _) => ctx.SemanticModel.GetDeclaredSymbol((ClassDeclarationSyntax)ctx.Node)
         );
 
-        var compilations = context.CompilationProvider.Combine(handlersDeclarations.Collect());
+        var compilations = context.CompilationProvider
+            .Combine(handlersDeclarations.Collect())
+            .Select((tuple, _) =>
+            {
+                var (compilation, handlersSymbolds) = tuple;
+                var ret = new List<HandlerTypeMetadata>();
+
+                foreach (var handler in handlersSymbolds)
+                {
+                    if (handler is null)
+                        continue;
+
+                    var handlerInterface = handler.AllInterfaces.FirstOrDefault(
+                        x => x.ContainingNamespace.ToString() + "." + x.Name == "Kanawanagasaki.BlazorContracts.IContractHandler");
+                    if (handlerInterface is null)
+                        continue;
+                    if (handlerInterface.TypeArguments.Length == 0)
+                        continue;
+
+                    var contractType = handlerInterface.TypeArguments[0];
+                    if (contractType is not INamedTypeSymbol contract)
+                        continue;
+                    var contractInterface = contract.AllInterfaces.FirstOrDefault(
+                    x => x.ContainingNamespace.ToString() + "." + x.Name == "Kanawanagasaki.BlazorContracts.IContract");
+                    if (contractInterface is null)
+                        continue;
+                    var contractAttribute = contract.GetAttributes().FirstOrDefault(
+                        x => x.AttributeClass is not null
+                        && x.AttributeClass.ContainingNamespace.ToString() + "." + x.AttributeClass.Name == "Kanawanagasaki.BlazorContracts.ContractAttribute");
+                    if (contractAttribute is null)
+                        continue;
+                    if (contractAttribute.ConstructorArguments.Length != 2)
+                        continue;
+
+                    var endpoint = contractAttribute.ConstructorArguments[0].Value?.ToString();
+                    if (endpoint is null)
+                        continue;
+
+                    var verbNum = contractAttribute.ConstructorArguments[1].Value?.ToString();
+                    if (verbNum is null)
+                        continue;
+
+                    var verbStr = verbNum switch
+                    {
+                        "1" => "Get",
+                        "2" => "Post",
+                        "3" => "Put",
+                        "4" => "Delete",
+                        _ => null
+                    };
+
+                    if (verbStr is not null)
+                        ret.Add(new(handler, contract, endpoint, verbStr));
+                }
+
+                return ret;
+            });
 
         context.RegisterSourceOutput(compilations, Execute);
     }
 
 
-    private void Execute(SourceProductionContext context, (Compilation, ImmutableArray<INamedTypeSymbol?>) tuple)
+    private void Execute(SourceProductionContext context, List<HandlerTypeMetadata> list)
     {
-        var (compilation, handlersSymbols) = tuple;
-
         var injectedServices = new Dictionary<string, string>();
-        var noResponseContracts = new List<(string contractType, string handlerType, HashSet<string> servicesNames)>();
-        var withResponseContracts = new List<(string contractType, string handlerType, HashSet<string> servicesNames, string responseType)>();
+        var withResponseContracts = new List<HandlerTypeMetadata>();
+        var noResponseContracts = new List<HandlerTypeMetadata>();
 
-        foreach (var handler in handlersSymbols)
+        foreach (var meta in list)
         {
-            if (handler is null)
-                continue;
-
-            var handlerInterface = handler.AllInterfaces.FirstOrDefault(
-                x => x.ContainingNamespace.ToString() + "." + x.Name == "Kanawanagasaki.BlazorContracts.IContractHandler");
-            if (handlerInterface is null)
-                continue;
-            if (handlerInterface.TypeArguments.Length == 0)
-                continue;
-
-            var contractType = handlerInterface.TypeArguments[0];
-            if (contractType is not INamedTypeSymbol contract)
-                continue;
-
-            var servicesTypes = new HashSet<string>();
-            var constructor = handler.Constructors.FirstOrDefault(x => x.DeclaredAccessibility is Accessibility.Public);
-            if (constructor is not null)
+            foreach (var (injectedServiceType, _) in meta.HandlerInjectedServicesTypes)
             {
-                foreach (var param in constructor.Parameters)
-                {
-                    var fullname = param.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS);
-
-                    if (!injectedServices.ContainsKey(fullname))
-                        injectedServices[fullname] = $"_injected_service_" + (injectedServices.Count + 1);
-
-                    servicesTypes.Add(injectedServices[fullname]);
-                }
+                if (!injectedServices.ContainsKey(injectedServiceType))
+                    injectedServices[injectedServiceType] = $"_injected_service_" + (injectedServices.Count + 1);
             }
 
-            if (handlerInterface.TypeArguments.Length < 2)
-            {
-                noResponseContracts.Add(
-                (
-                    $"{contract.ContainingNamespace}.{contract.Name}",
-                    $"{handler.ContainingNamespace}.{handler.Name}",
-                    servicesTypes
-                ));
-            }
+            if (meta.IsContractWithResponse)
+                withResponseContracts.Add(meta);
             else
-            {
-                var responseType = handlerInterface.TypeArguments[1];
-                if (responseType is INamedTypeSymbol response)
-                {
-                    withResponseContracts.Add(
-                    (
-                        $"{contract.ContainingNamespace}.{contract.Name}",
-                        $"{handler.ContainingNamespace}.{handler.Name}",
-                        servicesTypes,
-                        $"{response.ContainingNamespace}.{response.Name}"
-                    ));
-                }
-                else if (responseType is IArrayTypeSymbol arr && arr.ElementType is INamedTypeSymbol response2)
-                {
-                    withResponseContracts.Add(
-                    (
-                        $"{contract.ContainingNamespace}.{contract.Name}",
-                        $"{handler.ContainingNamespace}.{handler.Name}",
-                        servicesTypes,
-                        $"{response2.ContainingNamespace}.{response2.Name}[]"
-                    ));
-                }
-            }
+                noResponseContracts.Add(meta);
         }
 
         using var sw = new StringWriter();
@@ -136,8 +138,34 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         for (int i = 0; i < noResponseContracts.Count; i++)
         {
             var meta = noResponseContracts[i];
-            iw.WriteLineAndIncrease($"case {meta.contractType} _contract_{i + 1}:");
-            iw.WriteLine($"var _handler_{i + 1} = new {meta.handlerType}({string.Join(",", meta.servicesNames)});");
+
+            var constructorNames = meta.HandlerConstructorInjectedServicesTypes
+                .Select(x => injectedServices.TryGetValue(x.TypeName, out var fieldName) ? fieldName : null)
+                .Where(x => x is not null);
+
+            iw.WriteLineAndIncrease($"case {meta.ContractFullyQualifiedName} _contract_{i + 1}:");
+            iw.Write($"var _handler_{i + 1} = new {meta.HandlerFullyQualifiedName}({string.Join(",", constructorNames)})");
+            if (0 < meta.HandlerPropertiesInjectedServicesTypes.Count)
+            {
+                iw.WriteLine();
+                iw.WriteLineAndIncrease("{");
+                var isFirst = true;
+                foreach (var injectProp in meta.HandlerPropertiesInjectedServicesTypes)
+                {
+                    if (!injectedServices.TryGetValue(injectProp.TypeName, out var fieldName))
+                        continue;
+
+                    if (isFirst)
+                        isFirst = false;
+                    else
+                        iw.WriteLine(",");
+
+                    iw.Write($"{injectProp.Name} = {fieldName}");
+                }
+                iw.WriteLineAndDecrease("");
+                iw.Write("}");
+            }
+            iw.WriteLine(";");
             iw.WriteLine($"return _handler_{i + 1}.HandleAsync(_contract_{i + 1}, default);");
             iw.IndentLevel--;
         }
@@ -162,8 +190,35 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         for (int i = 0; i < withResponseContracts.Count; i++)
         {
             var meta = withResponseContracts[i];
-            iw.WriteLineAndIncrease($"case {meta.contractType} _contract_{i + 1}:");
-            iw.WriteLine($"var _handler_{i + 1} = new {meta.handlerType}({string.Join(",", meta.servicesNames)});");
+
+            var constructorNames = meta.HandlerConstructorInjectedServicesTypes
+                .Select(x => injectedServices.TryGetValue(x.TypeName, out var fieldName) ? fieldName : null)
+                .Where(x => x is not null);
+
+            iw.WriteLineAndIncrease($"case {meta.ContractFullyQualifiedName} _contract_{i + 1}:");
+            iw.Write($"var _handler_{i + 1} = new {meta.HandlerFullyQualifiedName}({string.Join(",", constructorNames)})");
+            if (0 < meta.HandlerPropertiesInjectedServicesTypes.Count)
+            {
+                iw.WriteLine();
+                iw.WriteLineAndIncrease("{");
+                var isFirst = true;
+                foreach (var injectProp in meta.HandlerPropertiesInjectedServicesTypes)
+                {
+                    if (!injectedServices.TryGetValue(injectProp.TypeName, out var fieldName))
+                        continue;
+
+                    if (isFirst)
+                        isFirst = false;
+                    else
+                        iw.WriteLine(",");
+
+                    iw.Write($"{injectProp.Name} = {fieldName}");
+                }
+                iw.WriteLineAndDecrease("");
+                iw.Write("}");
+            }
+            iw.WriteLine(";");
+
             iw.WriteLine($"var _result_{i + 1} = await _handler_{i + 1}.HandleAsync(_contract_{i + 1}, default);");
             iw.WriteLine($"return (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)_result_{i + 1};");
             iw.IndentLevel--;

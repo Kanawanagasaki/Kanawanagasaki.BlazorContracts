@@ -21,13 +21,15 @@ internal record HandlerTypeMetadata
     internal string Endpoint { get; }
     internal string Verb { get; }
 
-    internal string[] HandlerInjectedServicesTypes { get; }
+    internal List<(string TypeName, int Index)> HandlerConstructorInjectedServicesTypes { get; } = [];
+    internal List<(string TypeName, string Name, int Index)> HandlerPropertiesInjectedServicesTypes { get; } = [];
+    internal List<(string TypeName, int Index)> HandlerInjectedServicesTypes { get; } = [];
     internal Dictionary<string, string> PropNameToType { get; } = new();
 
     internal string[] ByteArrayProps { get; }
     internal string[] StreamProps { get; }
 
-    internal bool IsContractWithReturn { get; }
+    internal bool IsContractWithResponse { get; }
     internal bool IsByteArrayReturnType { get; }
     internal bool IsStreamReturnType { get; }
 
@@ -44,18 +46,35 @@ internal record HandlerTypeMetadata
         Endpoint = endpoint;
         Verb = verb;
 
-        var constructor = handler.Constructors.FirstOrDefault(x => x.DeclaredAccessibility is Accessibility.Public);
-        HandlerInjectedServicesTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS)).ToArray() ?? [];
+        int injectedServiceIndex = 1;
 
-        var props = GetAllProperties(contract);
-        ByteArrayProps = props.Where(x => x.Type is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
+        var constructor = handler.Constructors.FirstOrDefault(x => x.DeclaredAccessibility is Accessibility.Public);
+        var constructorTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS)).ToArray() ?? [];
+        foreach (var type in constructorTypes)
+        {
+            int index = injectedServiceIndex++;
+            HandlerConstructorInjectedServicesTypes.Add((type, index));
+            HandlerInjectedServicesTypes.Add((type, index));
+        }
+
+        var handlerProps = GetAllProperties(handler);
+        var handlerPropTypes = handlerProps.Select(x => (TypeName: x.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS), Name: x.Name)).ToArray();
+        foreach (var (type, name) in handlerPropTypes)
+        {
+            int index = injectedServiceIndex++;
+            HandlerPropertiesInjectedServicesTypes.Add((type, name, index));
+            HandlerInjectedServicesTypes.Add((type, index));
+        }
+
+        var contractProps = GetAllProperties(contract);
+        ByteArrayProps = contractProps.Where(x => x.Type is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
                               .Select(x => x.Name)
                               .ToArray();
-        StreamProps = props.Where(x => x.Type.ContainingNamespace + "." + x.Type.Name == "Kanawanagasaki.BlazorContracts.ContractFile")
+        StreamProps = contractProps.Where(x => x.Type.ContainingNamespace + "." + x.Type.Name == "Kanawanagasaki.BlazorContracts.ContractFile")
                            .Select(x => x.Name)
                            .ToArray();
 
-        foreach (var prop in props)
+        foreach (var prop in contractProps)
             PropNameToType[prop.Name] = prop.Type.ToDisplayString(SYMB_DISPLAY_FORMAT_GENERICS);
 
         foreach (var iface in contract.AllInterfaces)
@@ -65,7 +84,7 @@ internal record HandlerTypeMetadata
             if (iface.TypeArguments.Length != 1)
                 continue;
 
-            IsContractWithReturn = true;
+            IsContractWithResponse = true;
 
             if (iface.TypeArguments[0] is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
                 IsByteArrayReturnType = true;

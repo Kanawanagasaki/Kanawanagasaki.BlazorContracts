@@ -4,7 +4,7 @@ using Kanawanagasaki.BlazorContracts.Demo.Shared.Contracts;
 using Kanawanagasaki.BlazorContracts.Demo.Stores;
 using Kanawanagasaki.BlazorContracts;
 
-public class TodoDeleteHandler(AppStore store) : IContractHandler<TodoDeleteContract>
+public class TodoDeleteHandler(AppStore store) : BaseLoggerHandler, IContractHandler<TodoDeleteContract>
 {
     private readonly AppStore _store = store;
 
@@ -13,6 +13,9 @@ public class TodoDeleteHandler(AppStore store) : IContractHandler<TodoDeleteCont
         var deleted = _store.DeleteTodo(contract.Id);
         if (!deleted)
             return Task.FromResult(new ContractResult(StatusCodes.Status404NotFound, $"Todo with id={contract.Id} not found."));
+
+        Logger.LogInformation("Todo just got deleted, id={todoId}", contract.Id);
+
         return Task.FromResult(new ContractResult(StatusCodes.Status204NoContent));
     }
 }

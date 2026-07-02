@@ -173,8 +173,8 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 if (item.PropNameToType.TryGetValue(routePart, out var propTypeFullname))
                     iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {propTypeFullname} {routePart},");
 
-            for (int i = 0; i < item.HandlerInjectedServicesTypes.Length; i++)
-                iw.WriteLine($"{item.HandlerInjectedServicesTypes[i]} __injectedService_{i + 1},");
+            foreach (var (injectedServiceType, injectedServiceIndex) in item.HandlerInjectedServicesTypes)
+                iw.WriteLine($"{injectedServiceType} __injectedService_{injectedServiceIndex},");
 
             iw.WriteLine($"Microsoft.Extensions.Logging.ILogger<{item.HandlerFullyQualifiedName}> __logger,");
 
@@ -257,10 +257,18 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                     iw.WriteLine($"__contract.{routePart} = {routePart};");
             }
 
-            iw.WriteLine($$"""
-                var __handler = new {{item.HandlerFullyQualifiedName}}({{string.Join(", ", item.HandlerInjectedServicesTypes.Select((x, i) => $"__injectedService_{i + 1}"))}});
-                {{(item.IsContractWithReturn ? "await using " : "")}}var __result = await __handler.HandleAsync(__contract, __cancellationToken);
-                """);
+            var handlerConstructorArgs = string.Join(", ", item.HandlerConstructorInjectedServicesTypes.Select(x => $"__injectedService_{x.Index}"));
+            iw.Write($"var __handler = new {item.HandlerFullyQualifiedName}({handlerConstructorArgs})");
+            if (0 < item.HandlerPropertiesInjectedServicesTypes.Count)
+            {
+                iw.WriteLine();
+                iw.WriteLineAndIncrease("{");
+                iw.WriteLineAndDecrease(string.Join(",\n", item.HandlerPropertiesInjectedServicesTypes.Select(x => $"{x.Name} = __injectedService_{x.Index}")));
+                iw.Write("}");
+            }
+            iw.WriteLine(";");
+
+            iw.WriteLine($"{(item.IsContractWithResponse ? "await using " : "")}var __result = await __handler.HandleAsync(__contract, __cancellationToken);");
 
 
             if ((item.Verb == "Post" || item.Verb == "Put") && (0 < item.ByteArrayProps.Length || 0 < item.StreamProps.Length))
