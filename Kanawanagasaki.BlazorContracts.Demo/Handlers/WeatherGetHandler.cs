@@ -18,7 +18,8 @@ public class WeatherGetHandler : IContractHandler<WeatherGetContract, WeatherFor
         {
             Date = startDate.AddDays(index),
             TemperatureC = Random.Shared.Next(-20, 55),
-            Summary = Summaries[Random.Shared.Next(Summaries.Length)]
+            Summary = contract.WithSummary ? Summaries[Random.Shared.Next(Summaries.Length)] : null,
+            City = contract.City
         }).ToArray();
 
         return Task.FromResult(new ContractResult<WeatherForecast[]>(forecasts));

@@ -18,6 +18,9 @@ public class AppStore
     public TodoItem[] GetAllTodos()
         => _todos.Values.OrderBy(t => t.Id).ToArray();
 
+    public TodoItem[] GetAllTodos(bool isDone)
+        => _todos.Values.Where(t => t.IsDone == isDone).OrderBy(t => t.Id).ToArray();
+
     public TodoItem? GetTodoById(int id)
         => _todos.GetValueOrDefault(id);
 

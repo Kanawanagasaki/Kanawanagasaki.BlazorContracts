@@ -11,6 +11,9 @@ public class TodoGetAllHandler(AppStore store) : IContractHandler<TodoGetAllCont
 
     public Task<ContractResult<TodoItem[]>> HandleAsync(TodoGetAllContract contract, CancellationToken ct = default)
     {
-        return Task.FromResult(new ContractResult<TodoItem[]>(_store.GetAllTodos()));
+        if (contract.FilterIsDone.HasValue)
+            return Task.FromResult(new ContractResult<TodoItem[]>(_store.GetAllTodos(contract.FilterIsDone.Value)));
+        else
+            return Task.FromResult(new ContractResult<TodoItem[]>(_store.GetAllTodos()));
     }
 }

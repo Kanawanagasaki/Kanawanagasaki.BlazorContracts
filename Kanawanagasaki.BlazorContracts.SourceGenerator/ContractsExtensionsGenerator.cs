@@ -173,6 +173,17 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 if (item.PropNameToType.TryGetValue(routePart, out var propTypeFullname))
                     iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {propTypeFullname} {routePart},");
 
+            if (item.Verb == "Get" || item.Verb == "Delete")
+            {
+                foreach (var kv in item.PropNameToType)
+                {
+                    if (0 <= routeParts.IndexOf(kv.Key))
+                        continue;
+
+                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value} {kv.Key},");
+                }
+            }
+
             foreach (var (injectedServiceType, injectedServiceIndex) in item.HandlerInjectedServicesTypes)
                 iw.WriteLine($"{injectedServiceType} __injectedService_{injectedServiceIndex},");
 
@@ -247,8 +258,8 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 iw.WriteLine($"var __contract = new {item.ContractFullyQualifiedName}");
                 iw.WriteLine("{");
                 iw.IndentLevel++;
-                foreach (var routePart in routeParts)
-                    iw.WriteLine($"{routePart} = {routePart},");
+                foreach (var propName in item.PropNameToType.Keys)
+                    iw.WriteLine($"{propName} = {propName},");
                 iw.DecreaseAndWriteLine("};");
             }
             else if (0 < routeParts.Length)

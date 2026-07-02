@@ -2,7 +2,7 @@
   "profiles": {
     "Profile 1": {
       "commandName": "DebugRoslynComponent",
-      "targetProject": "..\\Kanawanagasaki.BlazorContracts.Client\\Kanawanagasaki.BlazorContracts.Client.csproj"
+      "targetProject": "..\\Kanawanagasaki.BlazorContracts.Demo.Client\\Kanawanagasaki.BlazorContracts.Demo.Client.csproj"
     }
   }
 }

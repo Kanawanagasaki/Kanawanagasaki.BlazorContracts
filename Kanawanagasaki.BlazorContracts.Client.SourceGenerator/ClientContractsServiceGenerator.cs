@@ -340,16 +340,51 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             iw.IndentLevel = 3;
             iw.WriteLine($"case {contract.FullyQualifiedName} _contract_{i + 1}:");
-            iw.IncreaseAndWriteLine($$"""
+            iw.IncreaseAndWriteLine("{");
+            iw.IndentLevel++;
+
+            var hasQuery = false;
+            if (contract.Verb == "Get" || contract.Verb == "Delete")
+            {
+                var query = contract.PropNameToIsNullable.ToDictionary(x => x.Key, x => x.Value);
+                foreach (var routePart in routeParts)
+                    query.Remove(routePart);
+
+                if (0 < query.Count)
                 {
-                    method = System.Net.Http.HttpMethod.{{contract.Verb}};
-                    endpoint = $"{{endpoint}}";
+                    iw.WriteLine("var query = System.Web.HttpUtility.ParseQueryString(string.Empty);");
+                    foreach (var kv in query)
+                    {
+                        if (kv.Value.IsReferenceType || kv.Value.IsNullable)
+                        {
+                            if (kv.Value.IsReferenceType)
+                            {
+                                iw.WriteLine($"if (_contract_{i + 1}.{kv.Key} is not null)");
+                                iw.IncreaseAndWriteLine($"query[\"{kv.Key}\"] = _contract_{i + 1}.{kv.Key}.ToString();");
+                            }
+                            else
+                            {
+                                iw.WriteLine($"if (_contract_{i + 1}.{kv.Key}.HasValue)");
+                                iw.IncreaseAndWriteLine($"query[\"{kv.Key}\"] = _contract_{i + 1}.{kv.Key}.Value.ToString();");
+                            }
+                            iw.IndentLevel--;
+                        }
+                        else
+                            iw.WriteLine($"query[\"{kv.Key}\"] = _contract_{i + 1}.{kv.Key}.ToString();");
+                    }
+                    hasQuery = true;
+                }
+            }
+
+            iw.WriteLine($$"""
+                method = System.Net.Http.HttpMethod.{{contract.Verb}};
+                endpoint = $"{{endpoint}}"{{(hasQuery ? " + \"?\" + query" : "")}};
                 """);
             if (contract.Verb == "Post" || contract.Verb == "Put")
             {
                 if (0 < contract.ByteArrayProps.Length || 0 < contract.StreamProps.Length)
                 {
-                    iw.IncreaseAndWriteLine($"""
+                    iw.WriteLine($"""
                         var multipart = new System.Net.Http.MultipartFormDataContent();
                         var json = System.Text.Json.JsonSerializer.Serialize(_contract_{i + 1}, _jsonOptions);
                         multipart.Add(new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json"), "{contract.Name}");
@@ -383,7 +418,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                 }
                 else
                 {
-                    iw.IncreaseAndWriteLine($"""
+                    iw.WriteLine($"""
                         var json = System.Text.Json.JsonSerializer.Serialize(_contract_{i + 1}, _jsonOptions);
                         content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
                         """);

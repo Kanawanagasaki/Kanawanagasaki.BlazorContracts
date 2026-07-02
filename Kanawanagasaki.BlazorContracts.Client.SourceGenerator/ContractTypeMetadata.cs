@@ -15,6 +15,8 @@ internal record ContractTypeMetadata
     internal string[] ByteArrayProps { get; }
     internal string[] StreamProps { get; }
 
+    internal Dictionary<string, (bool IsReferenceType, bool IsNullable)> PropNameToIsNullable { get; } = [];
+
     internal bool IsByteArrayReturnType { get; }
     internal bool IsStreamReturnType { get; }
 
@@ -32,6 +34,9 @@ internal record ContractTypeMetadata
         StreamProps = props.Where(x => x.Type.ContainingNamespace + "." + x.Type.Name == "Kanawanagasaki.BlazorContracts.ContractFile")
                            .Select(x => x.Name)
                            .ToArray();
+
+        foreach (var prop in props)
+            PropNameToIsNullable[prop.Name] = (prop.Type.IsReferenceType, prop.Type.NullableAnnotation is NullableAnnotation.Annotated);
 
         foreach (var iface in type.AllInterfaces)
         {
