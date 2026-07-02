@@ -27,6 +27,7 @@ internal record HandlerTypeMetadata
     internal string[] ByteArrayProps { get; }
     internal string[] StreamProps { get; }
 
+    internal bool IsContractWithReturn { get; }
     internal bool IsByteArrayReturnType { get; }
     internal bool IsStreamReturnType { get; }
 
@@ -63,6 +64,8 @@ internal record HandlerTypeMetadata
                 continue;
             if (iface.TypeArguments.Length != 1)
                 continue;
+
+            IsContractWithReturn = true;
 
             if (iface.TypeArguments[0] is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
                 IsByteArrayReturnType = true;

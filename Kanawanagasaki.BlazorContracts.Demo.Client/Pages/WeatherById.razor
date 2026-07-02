@@ -1,0 +1,76 @@
+@page "/weather/{Id:int}"
+@rendermode InteractiveAuto
+@inject IContractsService Contracts
+@inject ILogger<WeatherById> Logger
+
+<PageTitle>Weather #@Id &middot; Blazor Contracts</PageTitle>
+
+<h1>Weather forecast #@Id</h1>
+
+<p>
+    This page demonstrates a <strong>GET contract with a route parameter</strong>:
+    <code>WeatherGetByIdContract</code> &rarr; <code>GET /api/weather/{Id}</code>.
+    The handler returns a 404 with an error message if the requested id is out of range,
+    which lets you see how <code>ContractResult.ErrorMessage</code> surfaces on the client.
+</p>
+
+<div class="alert alert-info" role="alert">
+    <strong>Render mode:</strong> @RendererInfo.Name
+</div>
+
+@if (forecast is null && !loaded)
+{
+    <p><em>Loading...</em></p>
+}
+else if (forecast is null)
+{
+    <div class="alert alert-danger" role="alert">
+        <strong>Not found.</strong> @errorMessage
+    </div>
+}
+else
+{
+    <table class="table" style="max-width: 500px;">
+        <tr><th>Date</th><td>@forecast.Date.ToShortDateString()</td></tr>
+        <tr><th>Temp. (C)</th><td>@forecast.TemperatureC</td></tr>
+        <tr><th>Temp. (F)</th><td>@forecast.TemperatureF</td></tr>
+        <tr><th>Summary</th><td>@forecast.Summary</td></tr>
+    </table>
+}
+
+<p>
+    <a href="/weather/1">id=1</a> &middot;
+    <a href="/weather/2">id=2</a> &middot;
+    <a href="/weather/3">id=3</a> &middot;
+    <a href="/weather/4">id=4</a> &middot;
+    <a href="/weather/5">id=5</a> &middot;
+    <a href="/weather/99">id=99 (404)</a>
+</p>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private WeatherForecast? forecast;
+    private string? errorMessage;
+    private bool loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loaded = false;
+        forecast = null;
+        errorMessage = null;
+
+        await using var result = await Contracts.ProcessAsync(new WeatherGetByIdContract { Id = Id });
+        if (result.IsSuccessWithData)
+        {
+            forecast = result.Data;
+        }
+        else
+        {
+            errorMessage = $"Status {result.StatusCode}: {result.ErrorMessage}";
+            Logger.LogInformation("GetById({Id}) -> {Status} {Message}", Id, result.StatusCode, result.ErrorMessage);
+        }
+
+        loaded = true;
+    }
+}

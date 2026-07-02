@@ -1,0 +1,274 @@
+@page "/todos"
+@rendermode InteractiveAuto
+@inject IContractsService Contracts
+@inject ILogger<Todos> Logger
+
+<PageTitle>Todos &middot; Blazor Contracts</PageTitle>
+
+<h1>Todos (full CRUD via Blazor Contracts)</h1>
+
+<p>
+    This page exercises <strong>GET</strong>, <strong>POST</strong>, <strong>PUT</strong> and
+    <strong>DELETE</strong> contracts with route parameters (<code>/api/todos/{Id}</code>)
+    and JSON bodies. The handler also demonstrates <strong>404 / 400 error handling</strong>
+    via <code>ContractResult</code> status codes.
+</p>
+
+<div class="alert alert-info" role="alert">
+    <strong>Render mode:</strong> @RendererInfo.Name
+</div>
+
+@if (todos is null)
+{
+    <p><em>Loading todos...</em></p>
+}
+else
+{
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="Reload">Reload</button>
+        <button class="btn btn-outline-danger btn-sm" @onclick="ClearAll" disabled="@clearing">Clear all</button>
+    </div>
+
+    @if (todos.Length == 0)
+    {
+        <p><em>No todos yet. Add one below.</em></p>
+    }
+    else
+    {
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th style="width: 50px;">Id</th>
+                    <th>Title</th>
+                    <th style="width: 100px;">Done?</th>
+                    <th style="width: 200px;">Created</th>
+                    <th style="width: 220px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in todos)
+                {
+                    <tr>
+                        <td>@t.Id</td>
+                        <td>
+                            @if (editingId == t.Id)
+                            {
+                                <input type="text" class="form-control form-control-sm" @bind="editingTitle" />
+                            }
+                            else
+                            {
+                                @t.Title
+                            }
+                        </td>
+                        <td>
+                            @if (editingId == t.Id)
+                            {
+                                <input type="checkbox" class="form-check-input" @bind="editingIsDone" />
+                            }
+                            else
+                            {
+                                <input type="checkbox" class="form-check-input" checked="@t.IsDone" disabled />
+                            }
+                        </td>
+                        <td><small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("g")</small></td>
+                        <td>
+                            @if (editingId == t.Id)
+                            {
+                                <button class="btn btn-success btn-sm" @onclick="() => SaveEdit(t.Id)">Save</button>
+                                <button class="btn btn-secondary btn-sm ms-1" @onclick="CancelEdit">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => StartEdit(t)">Edit</button>
+                                <button class="btn btn-outline-danger btn-sm ms-1" @onclick="() => Delete(t.Id)">Delete</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <hr />
+
+    <h3>Add a new todo</h3>
+    <div class="row g-2 align-items-center">
+        <div class="col-auto">
+            <input type="text" class="form-control" placeholder="Title" @bind="newTitle" />
+        </div>
+        <div class="col-auto">
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="newIsDone" @bind="newIsDone" />
+                <label class="form-check-label" for="newIsDone">Already done</label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="Create" disabled="@creating">Create</button>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert alert-success alert-dismissible mt-3" role="alert">
+        @statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible mt-3" role="alert">
+        <strong>Error:</strong> @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@code {
+    private TodoItem[]? todos;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    private string newTitle = string.Empty;
+    private bool newIsDone;
+    private bool creating;
+
+    private int? editingId;
+    private string editingTitle = string.Empty;
+    private bool editingIsDone;
+
+    private bool clearing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        await using var result = await Contracts.ProcessAsync(new TodoGetAllContract());
+        if (result.IsSuccessWithData)
+        {
+            todos = result.Data;
+            errorMessage = null;
+        }
+        else
+        {
+            errorMessage = $"Failed to load todos (status {result.StatusCode}): {result.ErrorMessage}";
+            todos = Array.Empty<TodoItem>();
+        }
+    }
+
+    private async Task Create()
+    {
+        if (string.IsNullOrWhiteSpace(newTitle))
+        {
+            errorMessage = "Title is required.";
+            return;
+        }
+
+        creating = true;
+        try
+        {
+            var contract = new TodoCreateContract
+            {
+                Title = newTitle.Trim(),
+                IsDone = newIsDone
+            };
+            await using var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                statusMessage = $"Created todo #{result.Data!.Id}: {result.Data.Title}";
+                errorMessage = null;
+                newTitle = string.Empty;
+                newIsDone = false;
+                await Reload();
+            }
+            else
+            {
+                errorMessage = $"Create failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        finally
+        {
+            creating = false;
+        }
+    }
+
+    private void StartEdit(TodoItem t)
+    {
+        editingId = t.Id;
+        editingTitle = t.Title;
+        editingIsDone = t.IsDone;
+    }
+
+    private void CancelEdit()
+    {
+        editingId = null;
+    }
+
+    private async Task SaveEdit(int id)
+    {
+        if (string.IsNullOrWhiteSpace(editingTitle))
+        {
+            errorMessage = "Title is required.";
+            return;
+        }
+
+        var contract = new TodoUpdateContract
+        {
+            Id = id,
+            Title = editingTitle.Trim(),
+            IsDone = editingIsDone
+        };
+        await using var result = await Contracts.ProcessAsync(contract);
+        if (result.IsSuccessWithData)
+        {
+            statusMessage = $"Updated todo #{result.Data!.Id}.";
+            errorMessage = null;
+            editingId = null;
+            await Reload();
+        }
+        else
+        {
+            errorMessage = $"Update failed (status {result.StatusCode}): {result.ErrorMessage}";
+        }
+    }
+
+    private async Task Delete(int id)
+    {
+        using var result = await Contracts.ProcessAsync(new TodoDeleteContract { Id = id });
+        if (result.IsSuccess)
+        {
+            statusMessage = $"Deleted todo #{id}.";
+            errorMessage = null;
+            await Reload();
+        }
+        else
+        {
+            errorMessage = $"Delete failed (status {result.StatusCode}): {result.ErrorMessage}";
+        }
+    }
+
+    private async Task ClearAll()
+    {
+        clearing = true;
+        try
+        {
+            using var result = await Contracts.ProcessAsync(new TodoClearAllContract());
+            if (result.IsSuccess)
+            {
+                statusMessage = "All todos cleared.";
+                errorMessage = null;
+                await Reload();
+            }
+            else
+            {
+                errorMessage = $"Clear failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        finally
+        {
+            clearing = false;
+        }
+    }
+}

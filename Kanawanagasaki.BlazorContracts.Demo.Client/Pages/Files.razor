@@ -1,0 +1,331 @@
+@page "/files"
+@rendermode InteractiveAuto
+@inject IContractsService Contracts
+@inject IJSRuntime JS
+@inject ILogger<Files> Logger
+
+<PageTitle>Files &middot; Blazor Contracts</PageTitle>
+
+<h1>Files (binary upload &amp; download via Blazor Contracts)</h1>
+
+<p>
+    This page demonstrates <strong>POST</strong> contracts with <code>byte[]</code> and
+    <code>ContractFile</code> (stream) upload properties, and <strong>GET</strong> contracts
+    with <code>byte[]</code> and <code>Stream</code> response types. The source generator
+    auto-strips these binary properties from JSON serialization and uses
+    <code>multipart/form-data</code> for uploads and <code>application/octet-stream</code>
+    (or <code>multipart/related</code> on errors) for downloads.
+</p>
+
+<div class="alert alert-info" role="alert">
+    <strong>Render mode:</strong> @RendererInfo.Name
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Upload via <code>byte[]</code> property</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Uses <code>FileUploadBytesContract</code> &rarr; <code>POST /api/files/bytes</code>.
+                    The file is buffered into a <code>byte[]</code> on the client and sent as
+                    a multipart form field named <code>Content</code>.
+                </p>
+                <InputFile OnChange="OnUploadBytes" multiple="false" />
+                @if (bytesUpload is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong><br />
+                        Id: @bytesUpload.Id<br />
+                        File name: @bytesUpload.FileName<br />
+                        Length: @bytesUpload.Length bytes<br />
+                        Media type: @bytesUpload.MediaType<br />
+                        SHA-256: <code>@bytesUpload.Sha256</code>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Upload via <code>ContractFile</code> (stream) property</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Uses <code>FileUploadStreamContract</code> &rarr; <code>POST /api/files/stream</code>.
+                    The file is wrapped in a <code>ContractFile</code> (stream + filename + media type)
+                    and streamed to the server as a multipart form field named <code>Content</code>.
+                </p>
+                <InputFile OnChange="OnUploadStream" multiple="false" />
+                @if (streamUpload is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong><br />
+                        Id: @streamUpload.Id<br />
+                        File name: @streamUpload.FileName<br />
+                        Length: @streamUpload.Length bytes<br />
+                        Media type: @streamUpload.MediaType<br />
+                        SHA-256: <code>@streamUpload.Sha256</code>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<hr />
+
+<h3>Download a previously uploaded file</h3>
+<p class="text-muted small">
+    Use one of the IDs shown above (or any id you uploaded earlier in this server session -
+    the in-memory store is a process singleton).
+</p>
+
+<div class="row g-2 align-items-end mb-3">
+    <div class="col-auto">
+        <label class="form-label small">File Id</label>
+        <input type="number" class="form-control" style="width: 120px;" @bind="downloadId" />
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-primary" @onclick="DownloadBytes">Download as byte[]</button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-primary" @onclick="DownloadStream">Download as Stream</button>
+    </div>
+</div>
+
+@if (downloadedInfo is not null)
+{
+    <div class="card mt-3">
+        <div class="card-header">Downloaded file preview</div>
+        <div class="card-body">
+            <p class="small">
+                Length: @downloadedInfo.Length bytes &middot;
+                SHA-256: <code>@downloadedInfo.Sha256</code> &middot;
+                Source: @downloadedInfo.Source
+            </p>
+            @if (downloadedInfo.TextPreview is not null)
+            {
+                <pre class="bg-light p-2" style="max-height: 300px; overflow: auto;">@downloadedInfo.TextPreview</pre>
+            }
+            else if (downloadedInfo.DataUrl is not null)
+            {
+                <img src="@downloadedInfo.DataUrl" alt="preview" style="max-height: 200px;" />
+            }
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert alert-success alert-dismissible mt-3" role="alert">
+        @statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible mt-3" role="alert">
+        <strong>Error:</strong> @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@code {
+    private string? statusMessage;
+    private string? errorMessage;
+
+    private FileResult? bytesUpload;
+    private FileResult? streamUpload;
+
+    private int downloadId = 1;
+    private DownloadedInfo? downloadedInfo;
+
+    private async Task OnUploadBytes(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file is null)
+                return;
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            var contract = new FileUploadBytesContract
+            {
+                FileName = file.Name,
+                MediaType = file.ContentType,
+                Content = bytes
+            };
+            await using var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                bytesUpload = result.Data;
+                statusMessage = $"Uploaded {file.Name} ({bytes.Length} bytes) as id #{result.Data!.Id}.";
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = $"Upload failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Upload threw: {ex.Message}";
+        }
+    }
+
+    private async Task OnUploadStream(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file is null)
+                return;
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            var contract = new FileUploadStreamContract
+            {
+                FileName = file.Name,
+                Content = new ContractFile(stream, file.Name, file.ContentType, file.Size)
+            };
+            await using var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                streamUpload = result.Data;
+                statusMessage = $"Uploaded {file.Name} ({file.Size} bytes) as id #{result.Data!.Id}.";
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = $"Upload failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Upload threw: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadBytes()
+    {
+        try
+        {
+            await using var result = await Contracts.ProcessAsync(new FileDownloadBytesContract { Id = downloadId });
+            if (result.IsSuccessWithData)
+            {
+                downloadedInfo = BuildPreview(result.Data, "byte[] download");
+                statusMessage = $"Downloaded {result.Data.Length} bytes via byte[] contract.";
+                errorMessage = null;
+            }
+            else
+            {
+                downloadedInfo = null;
+                errorMessage = $"Download failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Download threw: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadStream()
+    {
+        try
+        {
+            await using var result = await Contracts.ProcessAsync(new FileDownloadStreamContract { Id = downloadId });
+            if (result.IsSuccessWithData)
+            {
+                using var ms = new MemoryStream();
+                await result.Data.CopyToAsync(ms);
+                var bytes = ms.ToArray();
+                downloadedInfo = BuildPreview(bytes, "Stream download");
+                statusMessage = $"Downloaded {bytes.Length} bytes via Stream contract.";
+                errorMessage = null;
+
+                await result.Data.DisposeAsync();
+            }
+            else
+            {
+                downloadedInfo = null;
+                errorMessage = $"Download failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Download threw: {ex.Message}";
+        }
+    }
+
+    private DownloadedInfo BuildPreview(byte[] data, string source)
+    {
+        var info = new DownloadedInfo
+        {
+            Length = data.Length,
+            Sha256 = ComputeSha256(data),
+            Source = source
+        };
+
+        if (0 < data.Length && LooksLikeImage(data))
+        {
+            try
+            {
+                info.DataUrl = $"data:image/png;base64,{Convert.ToBase64String(data)}";
+                return info;
+            }
+            catch { }
+        }
+
+        try
+        {
+            info.TextPreview = System.Text.Encoding.UTF8.GetString(data);
+            if (4096 < info.TextPreview.Length)
+                info.TextPreview = info.TextPreview[..4096] + "\n... (truncated)";
+        }
+        catch
+        {
+            info.TextPreview = $"(binary data, {data.Length} bytes, cannot display as text)";
+        }
+
+        return info;
+    }
+
+    private static bool LooksLikeImage(byte[] data)
+    {
+        if (data.Length < 4)
+            return false;
+
+        // PNG: 89 50 4E 47
+        if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+            return true;
+
+        // JPEG: FF D8 FF
+        if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+            return true;
+
+        // GIF: 47 49 46 38
+        if (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
+            return true;
+
+        return false;
+    }
+
+    private static string ComputeSha256(byte[] data)
+    {
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(data));
+    }
+
+    private class DownloadedInfo
+    {
+        public long Length { get; set; }
+        public string Sha256 { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+        public string? TextPreview { get; set; }
+        public string? DataUrl { get; set; }
+    }
+}

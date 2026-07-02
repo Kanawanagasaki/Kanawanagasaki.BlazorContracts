@@ -3,13 +3,15 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
-public class ContractResult
+public class ContractResult : IDisposable
 {
     [JsonIgnore]
     public bool IsSuccess => StatusCode / 100 == 2;
 
     public int StatusCode { get; set; }
     public string? ErrorMessage { get; set; }
+
+    public HttpResponseMessage? HttpResponse { get; set; }
 
     public ContractResult()
     {
@@ -26,9 +28,14 @@ public class ContractResult
         StatusCode = statusCode;
         ErrorMessage = errorMessage;
     }
+
+    public virtual void Dispose()
+    {
+        HttpResponse?.Dispose();
+    }
 }
 
-public class ContractResult<TData> : ContractResult
+public class ContractResult<TData> : ContractResult, IAsyncDisposable
 {
     public TData? Data { get; set; }
 
@@ -48,4 +55,22 @@ public class ContractResult<TData> : ContractResult
 
     public static implicit operator ContractResult<TData>(TData data)
         => new ContractResult<TData>(data);
+
+    public override void Dispose()
+    {
+        if (Data is IDisposable disposableData)
+            disposableData.Dispose();
+
+        base.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Data is IAsyncDisposable asyncDisposableData)
+            await asyncDisposableData.DisposeAsync();
+        else if (Data is IDisposable disposableData)
+            disposableData.Dispose();
+
+        base.Dispose();
+    }
 }

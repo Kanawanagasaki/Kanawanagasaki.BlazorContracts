@@ -1,0 +1,41 @@
+@page "/"
+
+<PageTitle>Home</PageTitle>
+
+<h1>Hello, world!</h1>
+
+<p>
+    Welcome to the <strong>Blazor Contracts</strong> demo app. This is the default
+    Blazor Web App template (Home, Counter, Weather) wired up to use the
+    <a href="https://github.com/Kanawanagasaki/Kanawanagasaki.BlazorContracts" target="_blank">Kanawanagasaki.BlazorContracts</a>
+    library, with <strong>prerendering</strong>, <strong>SignalR (InteractiveServer)</strong>,
+    and <strong>WebAssembly</strong> all enabled.
+</p>
+
+<h2>What this demo shows</h2>
+
+<p>
+    The same Razor component code runs in three different render contexts. The
+    Blazor Contracts library's <code>IContractsService</code> is resolved from DI,
+    and the source generators swap the implementation automatically:
+</p>
+
+<ul>
+    <li>
+        <strong>Prerendering (server static SSR)</strong> - the page is rendered
+        on the server before the response is sent. The server-side
+        <code>ContractsService</code> invokes the handler directly in-process.
+    </li>
+    <li>
+        <strong>InteractiveServer (SignalR)</strong> - the page is interactive
+        over a WebSocket. Still uses the server-side
+        <code>ContractsService</code> and invokes handlers in-process.
+    </li>
+    <li>
+        <strong>InteractiveWebAssembly</strong> - the page is rendered inside
+        the browser using WebAssembly. The client-side
+        <code>ClientContractsService</code> sends HTTP requests back to the
+        auto-mapped endpoints (registered via <code>app.MapContracts()</code>),
+        which then invoke the same handlers.
+    </li>
+</ul>

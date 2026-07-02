@@ -1,0 +1,60 @@
+@page "/health"
+@rendermode InteractiveAuto
+@inject IContractsService Contracts
+
+<PageTitle>Health &middot; Blazor Contracts</PageTitle>
+
+<h1>Health check (GET contract with no response body)</h1>
+
+<p>
+    This page demonstrates the simplest possible contract:
+    <code>HealthCheckContract</code> is an <code>IContract</code> (no response body)
+    mapped to <code>GET /api/health</code>. The handler returns a 200 status code,
+    and we inspect <code>ContractResult.IsSuccess</code> rather than <code>Data</code>.
+</p>
+
+<div class="alert alert-info" role="alert">
+    <strong>Render mode:</strong> @RendererInfo.Name
+</div>
+
+<button class="btn btn-primary" @onclick="Ping" disabled="@pinging">
+    @(pinging ? "Pinging..." : "Ping")
+</button>
+
+@if (lastStatus is not null)
+{
+    <div class="mt-3">
+        <h5>Last response</h5>
+        <table class="table table-sm" style="max-width: 400px;">
+            <tr><th>Status code</th><td>@lastStatus</td></tr>
+            <tr><th>IsSuccess</th><td>@(lastStatus / 100 == 2 ? "Yes" : "No")</td></tr>
+            <tr><th>Error message</th><td>@(string.IsNullOrEmpty(lastError) ? "(none)" : lastError)</td></tr>
+            <tr><th>Latency</th><td>@lastLatency ms</td></tr>
+        </table>
+    </div>
+}
+
+@code {
+    private bool pinging;
+    private int? lastStatus;
+    private string? lastError;
+    private long lastLatency;
+
+    private async Task Ping()
+    {
+        pinging = true;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var result = await Contracts.ProcessAsync(new HealthCheckContract());
+            sw.Stop();
+            lastStatus = result.StatusCode;
+            lastError = result.ErrorMessage;
+            lastLatency = sw.ElapsedMilliseconds;
+        }
+        finally
+        {
+            pinging = false;
+        }
+    }
+}

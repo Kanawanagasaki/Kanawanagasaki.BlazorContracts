@@ -136,25 +136,34 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
                 public virtual async System.Threading.Tasks.Task<Kanawanagasaki.BlazorContracts.ContractResult> ProcessAsync(Kanawanagasaki.BlazorContracts.IContract req)
                 {
-                    using var response = await InternalProcessAsync(req);
+                    var response = await InternalProcessAsync(req);
+                    Kanawanagasaki.BlazorContracts.ContractResult result;
                     if (response is null)
-                        return new Kanawanagasaki.BlazorContracts.ContractResult(405);
-                    if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
-                        return new Kanawanagasaki.BlazorContracts.ContractResult((int)response.StatusCode);
-                    var contentStr = await response.Content.ReadAsStringAsync();
-                    return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult>(contentStr, _jsonOptions);
+                        result = new Kanawanagasaki.BlazorContracts.ContractResult(405);
+                    else if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+                        result = new Kanawanagasaki.BlazorContracts.ContractResult((int)response.StatusCode);
+                    else
+                    {
+                        var contentStr = await response.Content.ReadAsStringAsync();
+                        result = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult>(contentStr, _jsonOptions);
+                    }
+                    result.HttpResponse = response;
+                    return result;
                 }
 
                 public virtual async System.Threading.Tasks.Task<Kanawanagasaki.BlazorContracts.ContractResult<TResponse>> ProcessAsync<TResponse>(Kanawanagasaki.BlazorContracts.IContract<TResponse> req) where TResponse : class
                 {
-                    using var response = await InternalProcessAsync(req);
+                    var response = await InternalProcessAsync(req);
+                    Kanawanagasaki.BlazorContracts.ContractResult<TResponse> result = null;
                     if (response is null)
-                        return new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>(405);
-                    if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
-                        return new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
+                        result = new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>(405);
+                    else if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+                        result = new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
+                    else
+                    {
             """);
 
-        iw.IndentLevel = 2;
+        iw.IndentLevel = 3;
         iw.WriteLine("switch (req)");
         iw.WriteLine("{");
         iw.IndentLevel++;
@@ -173,13 +182,17 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     if (contentType == "application/json")
                     {
                         var contentStr = await response.Content.ReadAsStringAsync();
-                        return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<TResponse>>(contentStr, _jsonOptions);
+                        result = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<TResponse>>(contentStr, _jsonOptions);
+                        break;
                     }
                     else if (contentType is not null && contentType.StartsWith("multipart/"))
                     {
                         var boundaryParam = response.Content.Headers.ContentType?.Parameters?.FirstOrDefault(p => p.Name?.Equals("boundary", System.StringComparison.OrdinalIgnoreCase) == true);
                         if (boundaryParam is null)
-                            return new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
+                        {
+                            result = new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
+                            break;
+                        }
                         var boundary = boundaryParam.Value.Trim().Trim('"');
                         if (!boundary.StartsWith("--"))
                             boundary = "--" + boundary;
@@ -199,7 +212,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                             boundaryIndexStart = boundaryIndex + boundaryBytes.Length;
                         }
 
-                        Kanawanagasaki.BlazorContracts.ContractResult<byte[]> result = null;
+                        Kanawanagasaki.BlazorContracts.ContractResult<byte[]> byteResult = null;
                         byte[] content = null;
 
                         for (int i = 0; i < boundaryIndices.Count - 1; i++)
@@ -240,7 +253,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                             if (partContentType == "application/json")
                             {
                                 var json = System.Text.Encoding.UTF8.GetString(bytes, contentStartIndex, endPartIndex - contentStartIndex);
-                                result = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<byte[]>>(json, _jsonOptions);
+                                byteResult = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<byte[]>>(json, _jsonOptions);
                             }
                             else
                             {
@@ -248,26 +261,26 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                                 System.Buffer.BlockCopy(bytes, contentStartIndex, content, 0, content.Length);
                             }
 
-                            if (result is not null && content is not null)
+                            if (byteResult is not null && content is not null)
                                 break;
                         }
 
-                        if (result is null && content is null)
-                            return new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
+                        if (byteResult is null && content is null)
+                            result = new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
                         else if (content is null)
-                            return (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)result;
+                            result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)byteResult;
                         else if (result is null)
-                            return (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<byte[]>((int)response.StatusCode) { Data = content };
+                            result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<byte[]>((int)response.StatusCode) { Data = content };
                         else
                         {
-                            result.Data = content;
-                            return (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)result;
+                            byteResult.Data = content;
+                            result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)byteResult;
                         }
                     }
                     else
                     {
                         var bytes = await response.Content.ReadAsByteArrayAsync();
-                        return (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<byte[]>
+                        result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<byte[]>
                         {
                             StatusCode = (int)response.StatusCode,
                             Data = bytes
@@ -278,23 +291,28 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             else if (contract.IsStreamReturnType)
             {
                 iw.IncreaseAndWriteLine("var stream = await response.Content.ReadAsStreamAsync();");
-                iw.WriteLine($"return (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<{typeof(Stream).FullName}>(stream);");
+                iw.WriteLine($"result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<{typeof(Stream).FullName}>(stream);");
             }
 
             iw.DecreaseAndWriteLine("}");
+            iw.WriteLine("break;");
             iw.IndentLevel--;
         }
-        iw.IndentLevel = 3;
+        iw.IndentLevel = 4;
         iw.WriteLine($"default:");
         iw.IncreaseAndWriteLine("{");
         iw.IncreaseAndWriteLine("var contentStr = await response.Content.ReadAsStringAsync();");
-        iw.WriteLine("return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<TResponse>>(contentStr, _jsonOptions);");
+        iw.WriteLine("result = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<TResponse>>(contentStr, _jsonOptions);");
         iw.DecreaseAndWriteLine("}");
+        iw.WriteLine("break;");
         iw.IndentLevel--;
+        iw.DecreaseAndWriteLine("}");
         iw.DecreaseAndWriteLine("}");
         iw.IndentLevel = 0;
 
         iw.WriteLine("""
+                    result.HttpResponse = response;
+                    return result;
                 }
 
                 private async System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> InternalProcessAsync(Kanawanagasaki.BlazorContracts.IContract req)
