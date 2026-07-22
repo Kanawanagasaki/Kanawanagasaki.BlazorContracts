@@ -52,6 +52,24 @@ public class AppStore
     public bool DeleteTodo(int id)
         => _todos.TryRemove(id, out _);
 
+    public TodoItem[] DeleteDoneTodos(int? olderThanDays = null, bool dryRun = false)
+    {
+        var now = DateTime.UtcNow;
+        var matching = _todos.Values
+            .Where(t => t.IsDone)
+            .Where(t => !olderThanDays.HasValue || (now - t.CreatedAt).TotalDays >= olderThanDays.Value)
+            .OrderBy(t => t.Id)
+            .ToArray();
+
+        if (!dryRun)
+        {
+            foreach (var t in matching)
+                _todos.TryRemove(t.Id, out _);
+        }
+
+        return matching;
+    }
+
     public void ClearTodos()
         => _todos.Clear();
 
@@ -88,6 +106,8 @@ public class AppStore
             AddTodo("Learn Blazor Contracts", false);
             AddTodo("Try prerendering + SignalR + WASM", false);
             AddTodo("Build a CRUD page", true);
+            AddTodo("Read the query parameter docs", true);
+            AddTodo("Star the repo on GitHub", true);
         }
     }
 }

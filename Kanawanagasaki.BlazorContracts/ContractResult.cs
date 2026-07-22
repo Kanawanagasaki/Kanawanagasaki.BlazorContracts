@@ -8,9 +8,12 @@ public class ContractResult : IDisposable
     [JsonIgnore]
     public bool IsSuccess => StatusCode / 100 == 2;
 
+    [JsonPropertyName("statusCode")]
     public int StatusCode { get; set; }
+    [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
 
+    [JsonIgnore]
     public HttpResponseMessage? HttpResponse { get; set; }
 
     public ContractResult()
@@ -37,9 +40,10 @@ public class ContractResult : IDisposable
 
 public class ContractResult<TData> : ContractResult, IAsyncDisposable
 {
+    [JsonPropertyName("data")]
     public TData? Data { get; set; }
 
-    [MemberNotNullWhen(true, nameof(Data))]
+    [JsonIgnore, MemberNotNullWhen(true, nameof(Data))]
     public bool IsSuccessWithData => IsSuccess && Data is not null;
 
     public ContractResult() : base(200) { }

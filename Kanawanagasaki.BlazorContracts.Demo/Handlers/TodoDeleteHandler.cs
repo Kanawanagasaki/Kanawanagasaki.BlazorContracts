@@ -14,8 +14,6 @@ public class TodoDeleteHandler(AppStore store) : BaseLoggerHandler, IContractHan
         if (!deleted)
             return Task.FromResult(new ContractResult(StatusCodes.Status404NotFound, $"Todo with id={contract.Id} not found."));
 
-        Logger.LogInformation("Todo just got deleted, id={todoId}", contract.Id);
-
         return Task.FromResult(new ContractResult(StatusCodes.Status204NoContent));
     }
 }

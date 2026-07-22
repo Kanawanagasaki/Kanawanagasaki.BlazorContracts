@@ -7,20 +7,53 @@
 
 <h1>Weather</h1>
 
-<p>This component demonstrates <strong>fetching data via a Blazor Contract</strong>.</p>
+<p>
+    This component demonstrates <strong>fetching data via a Blazor Contract</strong>
+</p>
 
 <div class="alert alert-info" role="alert">
     <strong>Render mode:</strong> @RendererInfo.Name<br />
     <strong>Endpoint:</strong> <code>GET /api/weather</code> via <code>WeatherGetContract</code><br />
+    <strong>Query parameters:</strong>
+    <code>City</code> (nullable string) and <code>WithSummary</code> (non-nullable bool).<br />
     During <em>prerendering</em> and <em>InteractiveServer</em>, the contract is dispatched directly
     to <code>WeatherGetHandler</code> in-process. During <em>InteractiveWebAssembly</em>, the
     <code>ClientContractsService</code> sends an HTTP request to the same endpoint and the same
     handler runs on the server.
 </div>
 
+<div class="card mb-3">
+    <div class="card-header">Query parameters</div>
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-auto">
+                <label class="form-label" for="cityInput">City</label>
+                <input type="text" class="form-control" id="cityInput" placeholder="city" @bind="cityInput" />
+            </div>
+            <div class="col-auto">
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="withSummaryInput" @bind="withSummaryInput" />
+                    <label class="form-check-label" for="withSummaryInput">WithSummary</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary" @onclick="LoadAsync" disabled="@loading">Apply &amp; fetch</button>
+                @if (loading)
+                {
+                    <span class="ms-2 small text-muted">Loading...</span>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
 @if (forecasts is null)
 {
-    <p><em>Loading...</em></p>
+    <p><em>Click "Apply &amp; fetch" to load forecasts.</em></p>
+}
+else if (forecasts.Length == 0)
+{
+    <p><em>No forecasts returned.</em></p>
 }
 else
 {
@@ -31,6 +64,7 @@ else
                 <th aria-label="Temperature in Celsius">Temp. (C)</th>
                 <th aria-label="Temperature in Fahrenheit">Temp. (F)</th>
                 <th>Summary</th>
+                <th>City</th>
             </tr>
         </thead>
         <tbody>
@@ -40,7 +74,8 @@ else
                     <td>@forecast.Date.ToShortDateString()</td>
                     <td>@forecast.TemperatureC</td>
                     <td>@forecast.TemperatureF</td>
-                    <td>@forecast.Summary</td>
+                    <td>@(forecast.Summary ?? "NULL")</td>
+                    <td>@(forecast.City ?? "NULL")</td>
                 </tr>
             }
         </tbody>
@@ -57,18 +92,40 @@ else
 @code {
     private WeatherForecast[]? forecasts;
     private string? errorMessage;
+    private bool loading;
 
-    protected override async Task OnInitializedAsync()
+    private string? cityInput;
+    private bool withSummaryInput = true;
+
+    protected override Task OnInitializedAsync()
+        => LoadAsync();
+
+    protected async Task LoadAsync()
     {
-        await using var result = await Contracts.ProcessAsync(new WeatherGetContract());
-        if (result.IsSuccessWithData)
+        loading = true;
+        try
         {
-            forecasts = result.Data;
+            var contract = new WeatherGetContract
+            {
+                City = string.IsNullOrWhiteSpace(cityInput) ? null : cityInput.Trim(),
+                WithSummary = withSummaryInput
+            };
+
+            await using var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                forecasts = result.Data;
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = $"Status {result.StatusCode}: {result.ErrorMessage ?? "(no message)"}";
+                Logger.LogWarning("WeatherGetContract failed: {Status} {Message}", result.StatusCode, result.ErrorMessage);
+            }
         }
-        else
+        finally
         {
-            errorMessage = $"Status {result.StatusCode}: {result.ErrorMessage ?? "(no message)"}";
-            Logger.LogWarning("WeatherGetContract failed: {Status} {Message}", result.StatusCode, result.ErrorMessage);
+            loading = false;
         }
     }
 }

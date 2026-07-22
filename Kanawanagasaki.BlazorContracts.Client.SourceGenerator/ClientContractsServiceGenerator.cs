@@ -154,7 +154,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                 public virtual async System.Threading.Tasks.Task<Kanawanagasaki.BlazorContracts.ContractResult<TResponse>> ProcessAsync<TResponse>(Kanawanagasaki.BlazorContracts.IContract<TResponse> req) where TResponse : class
                 {
                     var response = await InternalProcessAsync(req);
-                    Kanawanagasaki.BlazorContracts.ContractResult<TResponse> result = null;
+                    Kanawanagasaki.BlazorContracts.ContractResult<TResponse> result;
                     if (response is null)
                         result = new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>(405);
                     else if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
@@ -267,9 +267,9 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
                         if (byteResult is null && content is null)
                             result = new Kanawanagasaki.BlazorContracts.ContractResult<TResponse>((int)response.StatusCode);
-                        else if (content is null)
+                        else if (byteResult is not null)
                             result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)byteResult;
-                        else if (result is null)
+                        else if (content is not null)
                             result = (Kanawanagasaki.BlazorContracts.ContractResult<TResponse>)(object)new Kanawanagasaki.BlazorContracts.ContractResult<byte[]>((int)response.StatusCode) { Data = content };
                         else
                         {
@@ -423,10 +423,8 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                         content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
                         """);
                 }
-
-                iw.IndentLevel--;
             }
-            iw.WriteLine("""
+            iw.DecreaseAndWriteLine("""
                 }
                 break;
                 """);

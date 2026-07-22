@@ -32,15 +32,15 @@
                     a multipart form field named <code>Content</code>.
                 </p>
                 <InputFile OnChange="OnUploadBytes" multiple="false" />
-                @if (bytesUpload is not null)
+                @if (bytesUploadResult is not null)
                 {
                     <div class="mt-3 small">
                         <strong>Result:</strong><br />
-                        Id: @bytesUpload.Id<br />
-                        File name: @bytesUpload.FileName<br />
-                        Length: @bytesUpload.Length bytes<br />
-                        Media type: @bytesUpload.MediaType<br />
-                        SHA-256: <code>@bytesUpload.Sha256</code>
+                        Id: @bytesUploadResult.Id<br />
+                        File name: @bytesUploadResult.FileName<br />
+                        Length: @bytesUploadResult.Length bytes<br />
+                        Media type: @bytesUploadResult.MediaType<br />
+                        SHA-256: <code>@bytesUploadResult.Sha256</code>
                     </div>
                 }
             </div>
@@ -57,15 +57,15 @@
                     and streamed to the server as a multipart form field named <code>Content</code>.
                 </p>
                 <InputFile OnChange="OnUploadStream" multiple="false" />
-                @if (streamUpload is not null)
+                @if (streamUploadResult is not null)
                 {
                     <div class="mt-3 small">
                         <strong>Result:</strong><br />
-                        Id: @streamUpload.Id<br />
-                        File name: @streamUpload.FileName<br />
-                        Length: @streamUpload.Length bytes<br />
-                        Media type: @streamUpload.MediaType<br />
-                        SHA-256: <code>@streamUpload.Sha256</code>
+                        Id: @streamUploadResult.Id<br />
+                        File name: @streamUploadResult.FileName<br />
+                        Length: @streamUploadResult.Length bytes<br />
+                        Media type: @streamUploadResult.MediaType<br />
+                        SHA-256: <code>@streamUploadResult.Sha256</code>
                     </div>
                 }
             </div>
@@ -135,8 +135,8 @@
     private string? statusMessage;
     private string? errorMessage;
 
-    private FileResult? bytesUpload;
-    private FileResult? streamUpload;
+    private FileResult? bytesUploadResult;
+    private FileResult? streamUploadResult;
 
     private int downloadId = 1;
     private DownloadedInfo? downloadedInfo;
@@ -163,7 +163,7 @@
             await using var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
-                bytesUpload = result.Data;
+                bytesUploadResult = result.Data;
                 statusMessage = $"Uploaded {file.Name} ({bytes.Length} bytes) as id #{result.Data!.Id}.";
                 errorMessage = null;
             }
@@ -195,7 +195,7 @@
             await using var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
-                streamUpload = result.Data;
+                streamUploadResult = result.Data;
                 statusMessage = $"Uploaded {file.Name} ({file.Size} bytes) as id #{result.Data!.Id}.";
                 errorMessage = null;
             }

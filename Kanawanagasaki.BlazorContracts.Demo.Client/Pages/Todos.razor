@@ -10,8 +10,7 @@
 <p>
     This page exercises <strong>GET</strong>, <strong>POST</strong>, <strong>PUT</strong> and
     <strong>DELETE</strong> contracts with route parameters (<code>/api/todos/{Id}</code>)
-    and JSON bodies. The handler also demonstrates <strong>404 / 400 error handling</strong>
-    via <code>ContractResult</code> status codes.
+    and JSON bodies.
 </p>
 
 <div class="alert alert-info" role="alert">
@@ -24,9 +23,61 @@
 }
 else
 {
-    <div class="d-flex flex-wrap gap-2 mb-3">
-        <button class="btn btn-outline-secondary btn-sm" @onclick="Reload">Reload</button>
-        <button class="btn btn-outline-danger btn-sm" @onclick="ClearAll" disabled="@clearing">Clear all</button>
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Filter by IsDone">
+            <button type="button" class="btn btn-outline-secondary @(filterMode == "all" ? "active" : "")" @onclick='() => SetFilter("all")'>All</button>
+            <button type="button" class="btn btn-outline-secondary @(filterMode == "done" ? "active" : "")" @onclick='() => SetFilter("done")'>Done</button>
+            <button type="button" class="btn btn-outline-secondary @(filterMode == "notdone" ? "active" : "")" @onclick='() => SetFilter("notdone")'>Not done</button>
+        </div>
+        <div class="ms-auto d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="Reload">Reload</button>
+            <button class="btn btn-outline-danger btn-sm" @onclick="ClearAll" disabled="@clearing">Clear all</button>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">DELETE with query parameters &mdash; <code>TodoDeleteDoneContract</code></div>
+        <div class="card-body">
+            <p class="small text-muted mb-2">
+                Route is <code>DELETE /api/todos/done</code> (no route parameters).
+                <code>OlderThanDays</code> (nullable int) and <code>DryRun</code> (non-nullable bool)
+                are serialized as <code>?OlderThanDays=...&amp;DryRun=...</code> by the source generator.
+            </p>
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small" for="olderThanDaysInput">Older than (days)</label>
+                    <input type="number" class="form-control form-control-sm" id="olderThanDaysInput" style="width: 140px;" @bind="olderThanDaysInput" />
+                </div>
+                <div class="col-auto">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="dryRunInput" @bind="dryRunInput" />
+                        <label class="form-check-label small" for="dryRunInput">Dry run (returns what would be deleted)</label>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-warning btn-sm" @onclick="DeleteDone" disabled="@deletingDone">Delete done</button>
+                </div>
+            </div>
+            @if (deleteDoneResult is not null)
+            {
+                <div class="mt-2 small">
+                    <strong>@(dryRunInput ? "Dry run matched" : "Deleted") @deleteDoneResult.Length todo(s):</strong>
+                    @if (deleteDoneResult.Length == 0)
+                    {
+                        <span class="text-muted">(none)</span>
+                    }
+                    else
+                    {
+                        <ul class="mb-0">
+                            @foreach (var t in deleteDoneResult)
+                            {
+                                <li>#@t.Id &mdash; @t.Title (done, created @t.CreatedAt.ToLocalTime().ToString("g"))</li>
+                            }
+                        </ul>
+                    }
+                </div>
+            }
+        </div>
     </div>
 
     @if (todos.Length == 0)
@@ -138,14 +189,35 @@ else
 
     private bool clearing;
 
+    private string filterMode = "all";
+
+    private int? olderThanDaysInput;
+    private bool dryRunInput;
+    private bool deletingDone;
+    private TodoItem[]? deleteDoneResult;
+
     protected override async Task OnInitializedAsync()
     {
         await Reload();
     }
 
+    private async Task SetFilter(string mode)
+    {
+        if (filterMode == mode) return;
+        filterMode = mode;
+        await Reload();
+    }
+
     private async Task Reload()
     {
-        await using var result = await Contracts.ProcessAsync(new TodoGetAllContract());
+        bool? filterIsDone = filterMode switch
+        {
+            "done" => true,
+            "notdone" => false,
+            _ => null
+        };
+
+        await using var result = await Contracts.ProcessAsync(new TodoGetAllContract { FilterIsDone = filterIsDone });
         if (result.IsSuccessWithData)
         {
             todos = result.Data;
@@ -155,6 +227,37 @@ else
         {
             errorMessage = $"Failed to load todos (status {result.StatusCode}): {result.ErrorMessage}";
             todos = Array.Empty<TodoItem>();
+        }
+    }
+
+    private async Task DeleteDone()
+    {
+        deletingDone = true;
+        try
+        {
+            var contract = new TodoDeleteDoneContract
+            {
+                OlderThanDays = olderThanDaysInput,
+                DryRun = dryRunInput
+            };
+            await using var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                deleteDoneResult = result.Data;
+                statusMessage = dryRunInput
+                    ? $"Dry run: would have deleted {result.Data!.Length} done todo(s)."
+                    : $"Deleted {result.Data!.Length} done todo(s).";
+                errorMessage = null;
+                await Reload();
+            }
+            else
+            {
+                errorMessage = $"Delete-done failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        finally
+        {
+            deletingDone = false;
         }
     }
 
