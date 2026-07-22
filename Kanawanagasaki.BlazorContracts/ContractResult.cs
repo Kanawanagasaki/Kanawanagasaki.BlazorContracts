@@ -78,3 +78,27 @@ public class ContractResult<TData> : ContractResult, IAsyncDisposable
         base.Dispose();
     }
 }
+
+//public class DisposableContractResult<TData> : ContractResult<TData>, IDisposable, IAsyncDisposable
+//{
+//    [JsonIgnore]
+//    public HttpResponseMessage? HttpResponse { get; set; }
+
+//    public virtual void Dispose()
+//    {
+//        if (Data is IDisposable disposableData)
+//            disposableData.Dispose();
+
+//        HttpResponse?.Dispose();
+//    }
+
+//    public virtual async ValueTask DisposeAsync()
+//    {
+//        if (Data is IAsyncDisposable asyncDisposableData)
+//            await asyncDisposableData.DisposeAsync();
+//        else if (Data is IDisposable disposableData)
+//            disposableData.Dispose();
+
+//        HttpResponse?.Dispose();
+//    }
+//}

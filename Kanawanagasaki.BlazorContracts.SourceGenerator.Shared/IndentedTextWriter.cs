@@ -1,18 +1,18 @@
-﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
-using System;
+﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator.Shared;
+
 using System.Text;
 
-internal class IndentedTextWriter : TextWriter
+public class IndentedTextWriter : TextWriter
 {
     private bool _needIndent;
     private TextWriter _writer;
 
-    internal int IndentLevel { get; set; } = 0;
-    internal string Indent { get; set; } = "    ";
+    public int IndentLevel { get; set; } = 0;
+    public string Indent { get; set; } = "    ";
 
     public override Encoding Encoding => _writer.Encoding;
 
-    internal IndentedTextWriter(TextWriter writer)
+    public IndentedTextWriter(TextWriter writer)
     {
         if (writer is null)
             throw new ArgumentNullException();
@@ -20,25 +20,25 @@ internal class IndentedTextWriter : TextWriter
         _needIndent = false;
     }
 
-    internal void IncreaseAndWriteLine(string value)
+    public void IncreaseAndWriteLine(string value)
     {
         IndentLevel++;
         WriteLine(value);
     }
 
-    internal void WriteLineAndIncrease(string value)
+    public void WriteLineAndIncrease(string value)
     {
         WriteLine(value);
         IndentLevel++;
     }
 
-    internal void DecreaseAndWriteLine(string value)
+    public void DecreaseAndWriteLine(string value)
     {
         IndentLevel--;
         WriteLine(value);
     }
 
-    internal void WriteLineAndDecrease(string value)
+    public void WriteLineAndDecrease(string value)
     {
         WriteLine(value);
         IndentLevel--;

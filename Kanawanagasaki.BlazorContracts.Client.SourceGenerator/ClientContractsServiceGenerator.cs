@@ -3,13 +3,11 @@
 using Microsoft.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using Kanawanagasaki.BlazorContracts.SourceGenerator.Shared;
 
 [Generator]
 public class ClientContractsServiceGenerator : IIncrementalGenerator
 {
-    private static readonly SymbolDisplayFormat SYMB_DISPLAY_FORMAT
-         = new(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
-
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         context.RegisterSourceOutput(context.CompilationProvider, Execute);
@@ -17,8 +15,8 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
     private void Execute(SourceProductionContext context, Compilation compilation)
     {
-        var contractInterface = compilation.GetTypeByMetadataName("Kanawanagasaki.BlazorContracts.IContract");
-        var contracts = new List<ContractTypeMetadata>();
+        var contractInterface = compilation.GetTypeByMetadataName(Constants.IContractFullName);
+        var contracts = new List<ContractMetadata>();
 
         if (contractInterface is not null)
         {
@@ -40,33 +38,8 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             foreach (var type in types)
             {
-                var contractAttribute = type.GetAttributes().FirstOrDefault(
-                    x => x.AttributeClass is not null
-                      && x.AttributeClass.ToDisplayString(SYMB_DISPLAY_FORMAT) == "Kanawanagasaki.BlazorContracts.ContractAttribute");
-                if (contractAttribute is null)
-                    continue;
-                if (contractAttribute.ConstructorArguments.Length != 2)
-                    continue;
-
-                var endpoint = contractAttribute.ConstructorArguments[0].Value?.ToString();
-                if (endpoint is null)
-                    continue;
-
-                var verbNum = contractAttribute.ConstructorArguments[1].Value?.ToString();
-                if (verbNum is null)
-                    continue;
-
-                var verbStr = verbNum switch
-                {
-                    "1" => "Get",
-                    "2" => "Post",
-                    "3" => "Put",
-                    "4" => "Delete",
-                    _ => null
-                };
-
-                if (verbStr is not null)
-                    contracts.Add(new(type, endpoint, verbStr));
+                if (ContractMetadata.TryCreate(type, out var metadata) && metadata is not null)
+                    contracts.Add(metadata);
             }
         }
 
@@ -87,7 +60,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                 {
                     this._http = new System.Net.Http.HttpClient();
                     this._http.BaseAddress = new System.Uri(navMgr.BaseUri);
-                    _jsonOptions = new System.Text.Json.JsonSerializerOptions
+                    this._jsonOptions = new System.Text.Json.JsonSerializerOptions
                     {
                         PropertyNamingPolicy = null,
                         DictionaryKeyPolicy = null,
@@ -102,7 +75,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
         foreach (var contract in contracts)
         {
-            if (contract.ByteArrayProps.Length == 0 && contract.StreamProps.Length == 0)
+            if (!contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
                 continue;
 
             iw.IndentLevel = 6;
@@ -110,10 +83,11 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             iw.WriteLine("{");
 
             iw.IndentLevel++;
-            foreach (var byteArrProp in contract.ByteArrayProps)
-                iw.WriteLine($"__typeInfo.Properties.Remove(__typeInfo.Properties.First(__x => __x.Name == nameof({contract.FullyQualifiedName}.{byteArrProp})));");
-            foreach (var streamProp in contract.StreamProps)
-                iw.WriteLine($"__typeInfo.Properties.Remove(__typeInfo.Properties.First(__x => __x.Name == nameof({contract.FullyQualifiedName}.{streamProp})));");
+            foreach (var prop in contract.Properties.Values)
+            {
+                if (prop.IsByteArray || prop.IsContractFile)
+                    iw.WriteLine($"__typeInfo.Properties.Remove(__typeInfo.Properties.First(__x => __x.Name == nameof({contract.FullyQualifiedName}.{prop.Name})));");
+            }
 
             iw.DecreaseAndWriteLine("}");
         }
@@ -169,7 +143,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         iw.IndentLevel++;
         foreach (var contract in contracts)
         {
-            if (!contract.IsByteArrayReturnType && !contract.IsStreamReturnType)
+            if (!contract.IsByteArrayReturnType && !contract.IsDisposableReturnType)
                 continue;
 
             iw.WriteLine($"case {contract.FullyQualifiedName}:");
@@ -328,12 +302,11 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         for (int i = 0; i < contracts.Count; i++)
         {
             var contract = contracts[i];
-
             var endpoint = contract.Endpoint;
-            var routeParts = contract.Endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
-                                              .Where(x => 2 < x.Length && x[0] == '{' && x[x.Length - 1] == '}')
-                                              .Select(x => x.Substring(1, x.Length - 2))
-                                              .ToArray();
+            var routeParts = endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+                                     .Where(x => 2 < x.Length && x[0] == '{' && x[x.Length - 1] == '}')
+                                     .Select(x => x.Substring(1, x.Length - 2))
+                                     .ToArray();
 
             foreach (var routePart in routeParts)
                 endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Web.HttpUtility.UrlEncode(_contract_{i + 1}.{routePart}.ToString())}}");
@@ -344,9 +317,9 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             iw.IndentLevel++;
 
             var hasQuery = false;
-            if (contract.Verb == "Get" || contract.Verb == "Delete")
+            if (contract.VerbStr == "Get" || contract.VerbStr == "Delete")
             {
-                var query = contract.PropNameToIsNullable.ToDictionary(x => x.Key, x => x.Value);
+                var query = contract.Properties.ToDictionary(x => x.Key, x => x.Value);
                 foreach (var routePart in routeParts)
                     query.Remove(routePart);
 
@@ -377,12 +350,12 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             }
 
             iw.WriteLine($$"""
-                method = System.Net.Http.HttpMethod.{{contract.Verb}};
+                method = System.Net.Http.HttpMethod.{{contract.VerbStr}};
                 endpoint = $"{{endpoint}}"{{(hasQuery ? " + \"?\" + query" : "")}};
                 """);
-            if (contract.Verb == "Post" || contract.Verb == "Put")
+            if (contract.VerbStr == "Post" || contract.VerbStr == "Put")
             {
-                if (0 < contract.ByteArrayProps.Length || 0 < contract.StreamProps.Length)
+                if (contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
                 {
                     iw.WriteLine($"""
                         var multipart = new System.Net.Http.MultipartFormDataContent();
@@ -390,28 +363,30 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                         multipart.Add(new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json"), "{contract.Name}");
                         """);
 
-                    foreach (var byteArrProp in contract.ByteArrayProps)
+                    foreach (var prop in contract.Properties.Values)
                     {
-                        iw.WriteLine($$"""
-                            if (_contract_{{i + 1}}.{{byteArrProp}} is not null)
-                            {
-                                var byteArrContent = new System.Net.Http.ByteArrayContent(_contract_{{i + 1}}.{{byteArrProp}});
-                                byteArrContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-                                multipart.Add(byteArrContent, "{{byteArrProp}}", "{{byteArrProp}}.bin");
-                            }
-                            """);
-                    }
-
-                    foreach (var streamProp in contract.StreamProps)
-                    {
-                        iw.WriteLine($$"""
-                            if (_contract_{{i + 1}}.{{streamProp}} is not null)
-                            {
-                                var streamContent = new System.Net.Http.StreamContent(_contract_{{i + 1}}.{{streamProp}}.Stream);
-                                streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(_contract_{{i + 1}}.{{streamProp}}.MediaType);
-                                multipart.Add(streamContent, "{{streamProp}}", _contract_{{i + 1}}.{{streamProp}}.FileName);
-                            }
-                            """);
+                        if (prop.IsByteArray)
+                        {
+                            iw.WriteLine($$"""
+                                if (_contract_{{i + 1}}.{{prop.Name}} is not null)
+                                {
+                                    var byteArrContent = new System.Net.Http.ByteArrayContent(_contract_{{i + 1}}.{{prop.Name}});
+                                    byteArrContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                                    multipart.Add(byteArrContent, "{{prop.Name}}", "{{prop.Name}}.bin");
+                                }
+                                """);
+                        }
+                        else if (prop.IsContractFile)
+                        {
+                            iw.WriteLine($$"""
+                                if (_contract_{{i + 1}}.{{prop.Name}} is not null)
+                                {
+                                    var streamContent = new System.Net.Http.StreamContent(_contract_{{i + 1}}.{{prop.Name}}.Stream);
+                                    streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(_contract_{{i + 1}}.{{prop.Name}}.MediaType);
+                                    multipart.Add(streamContent, "{{prop.Name}}", _contract_{{i + 1}}.{{prop.Name}}.FileName);
+                                }
+                                """);
+                        }
                     }
 
                     iw.WriteLine("content = multipart;");

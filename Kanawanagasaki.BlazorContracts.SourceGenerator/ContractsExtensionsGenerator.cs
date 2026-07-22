@@ -1,5 +1,6 @@
 ﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
+using Kanawanagasaki.BlazorContracts.SourceGenerator.Shared;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -20,54 +21,14 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                                   .Select((tuple, _) =>
         {
             var (compilation, handlersSymbolds) = tuple;
-            var ret = new List<HandlerTypeMetadata>();
+            var ret = new List<HandlerMetadata>();
 
             foreach (var handler in handlersSymbolds)
             {
                 if (handler is null)
                     continue;
-
-                var handlerInterface = handler.AllInterfaces.FirstOrDefault(
-                    x => x.ContainingNamespace.ToString() + "." + x.Name == "Kanawanagasaki.BlazorContracts.IContractHandler");
-                if (handlerInterface is null)
-                    continue;
-                if (handlerInterface.TypeArguments.Length == 0)
-                    continue;
-
-                var contractType = handlerInterface.TypeArguments[0];
-                if (contractType is not INamedTypeSymbol contract)
-                    continue;
-                var contractInterface = contract.AllInterfaces.FirstOrDefault(
-                x => x.ContainingNamespace.ToString() + "." + x.Name == "Kanawanagasaki.BlazorContracts.IContract");
-                if (contractInterface is null)
-                    continue;
-                var contractAttribute = contract.GetAttributes().FirstOrDefault(
-                    x => x.AttributeClass is not null
-                      && x.AttributeClass.ContainingNamespace.ToString() + "." + x.AttributeClass.Name == "Kanawanagasaki.BlazorContracts.ContractAttribute");
-                if (contractAttribute is null)
-                    continue;
-                if (contractAttribute.ConstructorArguments.Length != 2)
-                    continue;
-
-                var endpoint = contractAttribute.ConstructorArguments[0].Value?.ToString();
-                if (endpoint is null)
-                    continue;
-
-                var verbNum = contractAttribute.ConstructorArguments[1].Value?.ToString();
-                if (verbNum is null)
-                    continue;
-
-                var verbStr = verbNum switch
-                {
-                    "1" => "Get",
-                    "2" => "Post",
-                    "3" => "Put",
-                    "4" => "Delete",
-                    _ => null
-                };
-
-                if (verbStr is not null)
-                    ret.Add(new(handler, contract, endpoint, verbStr));
+                if (HandlerMetadata.TryCreate(handler, out var metadata) && metadata is not null)
+                    ret.Add(metadata);
             }
 
             return ret;
@@ -76,7 +37,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(compilations, Execute);
     }
 
-    private void Execute(SourceProductionContext context, List<HandlerTypeMetadata> list)
+    private void Execute(SourceProductionContext context, List<HandlerMetadata> list)
     {
         using var sw = new StringWriter();
         using var iw = new IndentedTextWriter(sw);
@@ -113,22 +74,21 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
 
         foreach (var item in list)
         {
-            if (item.Verb != "Post" && item.Verb != "Put")
+            if (item.Contract.VerbStr != "Post" && item.Contract.VerbStr != "Put")
                 continue;
-            if (item.ByteArrayProps.Length == 0)
-                continue;
-            if (item.StreamProps.Length == 0)
+            if (!item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
                 continue;
 
             iw.IndentLevel = 6;
-            iw.WriteLine($"if(__typeInfo.Type == typeof({item.ContractFullyQualifiedName}))");
+            iw.WriteLine($"if(__typeInfo.Type == typeof({item.Contract.FullyQualifiedName}))");
             iw.WriteLine("{");
 
             iw.IndentLevel++;
-            foreach (var byteArrProp in item.ByteArrayProps)
-                iw.WriteLine($"__typeInfo.Properties.Remove(__typeInfo.Properties.First(__x => __x.Name == nameof({item.ContractFullyQualifiedName}.{byteArrProp})));");
-            foreach (var streamProp in item.StreamProps)
-                iw.WriteLine($"__typeInfo.Properties.Remove(__typeInfo.Properties.First(__x => __x.Name == nameof({item.ContractFullyQualifiedName}.{streamProp})));");
+            foreach (var prop in item.Contract.Properties.Values)
+            {
+                if (prop.IsByteArray || prop.IsContractFile)
+                    iw.WriteLine($"__typeInfo.Properties.Remove(__typeInfo.Properties.First(__x => __x.Name == nameof({item.Contract.FullyQualifiedName}.{prop.Name})));");
+            }
 
             iw.DecreaseAndWriteLine("}");
         }
@@ -152,35 +112,35 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
         foreach (var item in list)
         {
             iw.IndentLevel = 2;
-            iw.WriteLineAndIncrease($"__endpoints.Map{item.Verb}(\"{item.Endpoint}\", async (");
+            iw.WriteLineAndIncrease($"__endpoints.Map{item.Contract.VerbStr}(\"{item.Contract.Endpoint}\", async (");
 
-            if (item.Verb == "Post" || item.Verb == "Put")
+            if (item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put")
             {
-                if (0 < item.ByteArrayProps.Length || 0 < item.StreamProps.Length)
+                if (item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
                     iw.WriteLine("Microsoft.AspNetCore.Http.HttpRequest __httpRequest,");
                 else
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromBody] {item.ContractFullyQualifiedName} __contract,");
+                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromBody] {item.Contract.FullyQualifiedName} __contract,");
             }
 
-            if (item.IsByteArrayReturnType || item.IsStreamReturnType)
+            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
                 iw.WriteLine("Microsoft.AspNetCore.Http.HttpResponse __httpResponse,");
 
-            var routeParts = item.Endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+            var routeParts = item.Contract.Endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
                 .Where(x => 2 < x.Length && x[0] == '{' && x[x.Length - 1] == '}')
                 .Select(x => x.Substring(1, x.Length - 2))
                 .ToArray();
             foreach (var routePart in routeParts)
-                if (item.PropNameToType.TryGetValue(routePart, out var propTypeFullname))
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {propTypeFullname} {routePart},");
+                if (item.Contract.Properties.TryGetValue(routePart, out var prop))
+                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {prop.FullyQualifiedName} {routePart},");
 
-            if (item.Verb == "Get" || item.Verb == "Delete")
+            if (item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete")
             {
-                foreach (var kv in item.PropNameToType)
+                foreach (var kv in item.Contract.Properties)
                 {
                     if (0 <= routeParts.IndexOf(kv.Key))
                         continue;
 
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value} {kv.Key},");
+                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key},");
                 }
             }
 
@@ -198,20 +158,22 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
 
             iw.IndentLevel++;
 
-            if ((item.Verb == "Post" || item.Verb == "Put") && (0 < item.ByteArrayProps.Length || 0 < item.StreamProps.Length))
+            if ((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
             {
                 iw.WriteLine($$"""
                     var __form = await __httpRequest.ReadFormAsync();
-                    var __contractJson = __form["{{item.ContractName}}"].FirstOrDefault();
+
+                    var __contractJson = __form["{{item.Contract.Name}}"].FirstOrDefault();
                     if (__contractJson is null)
                     {
                         var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
                         return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
                     }
-                    {{item.ContractFullyQualifiedName}} __contract;
+
+                    {{item.Contract.FullyQualifiedName}} __contract;
                     try
                     {
-                        __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.ContractFullyQualifiedName}}>(__contractJson);
+                        __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.Contract.FullyQualifiedName}}>(__contractJson);
                         if (__contract is null)
                         {
                             var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
@@ -223,42 +185,45 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                         var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
                         return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
                     }
+
+                    var __toDispose = new System.Collections.Generic.List<System.IDisposable>();
                     """);
 
-                for (int i = 0; i < item.ByteArrayProps.Length; i++)
+                foreach (var prop in item.Contract.Properties.Values)
                 {
-                    iw.WriteLine($$"""
-                        var __bytesFile_{{i + 1}} = __form.Files["{{item.ByteArrayProps[i]}}"];
-                        if (__bytesFile_{{i + 1}} is not null)
-                        {
-                            using var __ms = new System.IO.MemoryStream();
-                            await __bytesFile_{{i + 1}}.CopyToAsync(__ms);
-                            __contract.{{item.ByteArrayProps[i]}} = __ms.ToArray();
-                        }
-                        """);
-                }
-
-                iw.WriteLine("var __toDispose = new System.Collections.Generic.List<System.IDisposable>();");
-                for (int i = 0; i < item.StreamProps.Length; i++)
-                {
-                    iw.WriteLine($$"""
-                        var __streamFile_{{i + 1}} = __form.Files["{{item.StreamProps[i]}}"];
-                        if (__streamFile_{{i + 1}} is not null)
-                        {
-                            var __stream = __streamFile_{{i + 1}}.OpenReadStream();
-                            __toDispose.Add(__stream);
-                            __contract.{{item.StreamProps[i]}} = new Kanawanagasaki.BlazorContracts.ContractFile(__stream, __streamFile_{{i + 1}}.FileName, __streamFile_{{i + 1}}.ContentType, __streamFile_{{i + 1}}.Length);
-                        }
-                        """);
+                    if (prop.IsByteArray)
+                    {
+                        iw.WriteLine($$"""
+                            var __bytesFile_{{prop.Name}} = __form.Files["{{prop.Name}}"];
+                            if (__bytesFile_{{prop.Name}} is not null)
+                            {
+                                using var __ms = new System.IO.MemoryStream();
+                                await __bytesFile_{{prop.Name}}.CopyToAsync(__ms);
+                                __contract.{{prop.Name}} = __ms.ToArray();
+                            }
+                            """);
+                    }
+                    else if (prop.IsContractFile)
+                    {
+                        iw.WriteLine($$"""
+                            var __streamFile_{{prop.Name}} = __form.Files["{{prop.Name}}"];
+                            if (__streamFile_{{prop.Name}} is not null)
+                            {
+                                var __stream = __streamFile_{{prop.Name}}.OpenReadStream();
+                                __toDispose.Add(__stream);
+                                __contract.{{prop.Name}} = new Kanawanagasaki.BlazorContracts.ContractFile(__stream, __streamFile_{{prop.Name}}.FileName, __streamFile_{{prop.Name}}.ContentType, __streamFile_{{prop.Name}}.Length);
+                            }
+                            """);
+                    }
                 }
             }
 
-            if (item.Verb == "Get" || item.Verb == "Delete")
+            if (item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete")
             {
-                iw.WriteLine($"var __contract = new {item.ContractFullyQualifiedName}");
+                iw.WriteLine($"var __contract = new {item.Contract.FullyQualifiedName}");
                 iw.WriteLine("{");
                 iw.IndentLevel++;
-                foreach (var propName in item.PropNameToType.Keys)
+                foreach (var propName in item.Contract.Properties.Keys)
                     iw.WriteLine($"{propName} = {propName},");
                 iw.DecreaseAndWriteLine("};");
             }
@@ -279,10 +244,10 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
             }
             iw.WriteLine(";");
 
-            iw.WriteLine($"{(item.IsContractWithResponse ? "await using " : "")}var __result = await __handler.HandleAsync(__contract, __cancellationToken);");
+            iw.WriteLine($"{(item.Contract.HasResponse ? "await using " : "")}var __result = await __handler.HandleAsync(__contract, __cancellationToken);");
 
 
-            if ((item.Verb == "Post" || item.Verb == "Put") && (0 < item.ByteArrayProps.Length || 0 < item.StreamProps.Length))
+            if ((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
             {
                 iw.WriteLine($$"""
                     foreach (var __obj in __toDispose)
@@ -290,7 +255,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                     """);
             }
 
-            if (item.IsByteArrayReturnType || item.IsStreamReturnType)
+            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
             {
                 iw.WriteLine($$"""
                     __httpResponse.StatusCode = __result.StatusCode;
@@ -309,7 +274,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                     {
                     """);
 
-                if (item.IsByteArrayReturnType)
+                if (item.Contract.IsByteArrayReturnType)
                 {
                     iw.IncreaseAndWriteLine($$"""
                         __httpResponse.ContentType = "application/octet-stream";
@@ -340,7 +305,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                         var __beforeBinary =
                             $"--{__boundary}\r\n" +
                             $"Content-Type: application/json; charset=utf-8\r\n" +
-                            $"Content-Disposition: inline; name=\"MediaGetContract\"\r\n" +
+                            $"Content-Disposition: inline; name=\"{{item.Contract.Name}}\"\r\n" +
                             $"\r\n" +
                             System.Text.Json.JsonSerializer.Serialize(__result, __jsonOptions) + "\r\n" +
                             $"--{__boundary}\r\n" +
@@ -355,7 +320,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
 
                     """);
 
-                if (item.IsByteArrayReturnType)
+                if (item.Contract.IsByteArrayReturnType)
                 {
                     iw.IncreaseAndWriteLine($$"""
                         __httpResponse.ContentLength = __beforeBinaryBytes.Length + __result.Data.Length + __afterBinaryBytes.Length;
@@ -401,7 +366,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 catch (System.Exception e)
                 {
                 """);
-            if (item.IsByteArrayReturnType || item.IsStreamReturnType)
+            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
             {
                 iw.IncreaseAndWriteLine($$"""
                     __logger.LogError(e, "Failed to handle a contract");

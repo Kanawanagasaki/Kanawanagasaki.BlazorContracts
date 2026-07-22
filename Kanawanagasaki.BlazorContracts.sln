@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.36327.8
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11822.322
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts", "Kanawanagasaki.BlazorContracts\Kanawanagasaki.BlazorContracts.csproj", "{8D404599-F0EA-4533-82EC-9B14FA34C9DA}"
 EndProject
@@ -14,6 +14,13 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Demo.Client", "Kanawanagasaki.BlazorContracts.Demo.Client\Kanawanagasaki.BlazorContracts.Demo.Client.csproj", "{7CB2C78D-041D-46D1-8004-34654AD73157}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Demo", "Kanawanagasaki.BlazorContracts.Demo\Kanawanagasaki.BlazorContracts.Demo.csproj", "{CF0FECE7-DF8E-47FB-BD86-3092A7ED69ED}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Kanawanagasaki.BlazorContracts.SourceGenerator.Shared", "Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.shproj", "{B46A3182-03BD-4E53-B4E4-7B2B2A9DF10B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C158622E-7B36-469D-9088-4B2773E48E7D}"
+	ProjectSection(SolutionItems) = preProject
+		TODO.md = TODO.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -103,5 +110,10 @@ Global
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F5C6850F-B478-45EA-85BA-4F53B3D194BA}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.projitems*{4a4c7610-03d1-4c14-8e80-6cc4bfac859b}*SharedItemsImports = 5
+		Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.projitems*{8369877b-9466-4e5a-9ba1-20ff713a3a1c}*SharedItemsImports = 5
+		Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.projitems*{b46a3182-03bd-4e53-b4e4-7b2b2a9df10b}*SharedItemsImports = 13
 	EndGlobalSection
 EndGlobal
