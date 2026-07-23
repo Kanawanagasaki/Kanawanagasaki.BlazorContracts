@@ -1,0 +1,875 @@
+@page "/test"
+@inject IContractsService Contracts
+@rendermode InteractiveAuto
+
+<PageTitle>Tests</PageTitle>
+
+<h1>Tests</h1>
+
+<div class="alert alert-info" role="alert">
+    <strong>Render mode:</strong> @RendererInfo.Name<br />
+    <strong>Tests:</strong> @passedTestsCount / @totalTestCount<br />
+</div>
+
+@if (!running)
+{
+    <button class="btn btn-primary mb-3" @onclick="@RunTestsAsync">Run Tests</button>
+}
+else
+{
+    <div class="spinner-border text-primary mb-3" role="status"></div>
+    <span class="text-muted">Running...</span>
+}
+
+<div id="log-container" class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Log</span>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="@ClearLogs">Clear</button>
+    </div>
+    <div class="card-body p-0" style="max-height: 400px; overflow-y: auto;">
+        <ul class="list-group list-group-flush">
+            @foreach (var log in logs)
+            {
+                <li class="list-group-item log-entry @(log.Type)">
+                    <small class="text-muted">@log.Timestamp</small>
+                    @if (log.Success.HasValue && log.Success.Value)
+                    {
+                        <span class="badge bg-success me-1">&#10004;</span>
+                    }
+                    else if (log.Success.HasValue && !log.Success.Value)
+                    {
+                        <span class="badge bg-danger me-1">&#10008;</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary me-1">i</span>
+                    }
+                    <code>@log.Message</code>
+                </li>
+            }
+        </ul>
+    </div>
+</div>
+
+<h2 class="mt-4">Test Categories Results</h2>
+
+<div class="row g-3 mb-3">
+    @foreach (var cat in categories)
+    {
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100 @(cat.AllPass ? "border-success" : "border-danger")">
+                <div class="card-header">
+                    <strong>@cat.Name</strong>
+                    @if (cat.AllPass)
+                    {
+                        <span class="badge bg-success float-end">@cat.Total</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-danger float-end">@cat.Passed / @cat.Total</span>
+                    }
+                </div>
+                <ul class="list-group list-group-flush">
+                    @foreach (var item in cat.Items)
+                    {
+                        <li class="list-group-item @(item.Pass ? "" : "bg-light")">
+                            @(item.Pass ? "\u2714" : "\u2716") <code>@item.Label</code>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly List<CategoryResult> categories = new();
+    private static readonly List<LogEntry> logs = new();
+    private int passedTestsCount;
+    private static readonly int totalTestCount = 27;
+    private bool running;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RunTestsAsync();
+    }
+
+    private async Task RunTestsAsync()
+    {
+        running = true;
+        StateHasChanged();
+
+        try
+        {
+            logs.Add(new LogEntry("Testing...", null));
+
+            passedTestsCount = 0;
+
+            // Category 1: Simple GET tests (no body, no response / simple response)
+            var cat1 = new CategoryResult("GET - No Body");
+            await TestGetNoData(cat1, "GET no data (204)");
+            if (cat1.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // Simple response GET
+            var cat2 = new CategoryResult("GET - Simple Response");
+            await TestGetSimpleResponse(cat2, "GET simple response");
+            if (cat2.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // Complex response GET
+            var cat3 = new CategoryResult("GET - Complex Response");
+            await TestGetComplexResponse(cat3, "GET complex response");
+            if (cat3.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // Stream response GET
+            var cat4 = new CategoryResult("GET - Stream Response");
+            await TestGetStreamResponse(cat4, "GET stream response");
+            if (cat4.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // Route parameter tests
+            var cat5 = new CategoryResult("GET - Route Parameters");
+            await TestGetRouteParamNoResponse(cat5, "GET route param no response");
+            if (cat5.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestGetRouteQueryParam(cat5, "GET route + query params");
+            if (cat5.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // POST tests
+            var cat6 = new CategoryResult("POST - Simple");
+            await TestPostNoData(cat6, "POST no data");
+            if (cat6.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestPostNoBodyNoResponse(cat6, "POST no body/no response");
+            if (cat6.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // Category 7: POST - Simple Body with verification
+            var cat7 = new CategoryResult("POST - With Body Verification");
+            await TestPostSimpleBody(cat7, "POST simple body");
+            if (cat7.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestPostComplexBody(cat7, "POST complex body");
+            if (cat7.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // AES encryption/decryption round-trip
+            var cat8 = new CategoryResult("POST - AES Encryption");
+            await TestEncryptDecryptRoundTrip(cat8);
+            if (cat8.Items[0].Pass && cat8.Items[1].Pass)
+                passedTestsCount += 2;
+            StateHasChanged();
+
+            // File upload tests use in-memory data
+            var cat9 = new CategoryResult("POST - File Upload");
+            await TestUploadSingleFile(cat9, "upload single file");
+            if (cat9.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestUploadMultipleFiles(cat9, "upload multiple files");
+            if (cat9.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestUploadCombined(cat9, "upload byte array + files combined");
+            if (cat9.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // PUT tests
+            var catA = new CategoryResult("PUT - With Body");
+            await TestPutSimpleBody(catA, "PUT simple body");
+            if (catA.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestPutRouteParam(catA, "PUT route param + body");
+            if (catA.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            // DELETE tests
+            var catB = new CategoryResult("DELETE");
+            await TestDeleteNoBodyNoResponse(catB, "DELETE no response");
+            if (catB.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            categories.AddRange(new[] { cat1, cat2, cat3, cat4, cat5, cat6, cat7, cat8, cat9, catA, catB });
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            logs.Add(new LogEntry(ex.ToString(), false));
+        }
+
+        running = false;
+    }
+
+    private void ClearLogs()
+    {
+        logs.Clear();
+    }
+
+    // -- GET: No body, no response --
+    async Task TestGetNoData(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"GET /api/test (no data)", null));
+            using var result = await Contracts.ProcessAsync(new TestGetNoDataContract());
+
+            var pass = result.StatusCode == 204;
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
+
+            if (pass)
+                logs.Add(new LogEntry($"GET /api/test returned {result.StatusCode}", true));
+            else
+                logs.Add(new LogEntry($"GET /api/test FAILED: status={result.StatusCode}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"GET /api/test threw: {ex.Message}", false));
+        }
+    }
+
+    // -- GET: Simple response with number verification --
+    async Task TestGetSimpleResponse(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"GET /api/test/simple", null));
+            await using var result = await Contracts.ProcessAsync(new TestGetSimpleResponseContract());
+
+            var pass = result.IsSuccessWithData && int.TryParse(result.Data.Message, out var remoteMin) && Math.Abs(DateTimeOffset.Now.Minute - remoteMin) <= 1;
+            cat.Items.Add(new CategoryItem(label, pass, pass ? "simple response OK" : $"status={result.StatusCode}, msg={result.Data?.Message ?? "NULL"}"));
+
+            if (result.IsSuccessWithData)
+                logs.Add(new LogEntry($"GET /api/test/simple: msg={result.Data.Message}", true));
+            else
+                logs.Add(new LogEntry($"GET /api/test/simple FAILED: status={result.StatusCode}, msg={result.Data?.Message}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"GET /api/test/simple threw: {ex.Message}", false));
+        }
+    }
+
+    // -- GET: Complex response --
+    async Task TestGetComplexResponse(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"GET /api/test/complex", null));
+            var min = DateTimeOffset.UtcNow.Minute;
+            await using var result = await Contracts.ProcessAsync(new TestGetComplexResponseContract());
+
+            var pass = result.IsSuccessWithData && (ComplexResponse.Validate(min, result.Data) || ComplexResponse.Validate((min + 1) % 60, result.Data));
+            cat.Items.Add(new CategoryItem(label, pass, pass ? "PASS" : $"status={result.StatusCode}"));
+
+            if (pass)
+                logs.Add(new LogEntry($"GET /api/test/complex: PASS", true));
+            else
+                logs.Add(new LogEntry($"GET /api/test/complex FAILED: status={result.StatusCode}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"GET /api/test/complex threw: {ex.Message}", false));
+        }
+    }
+
+    // -- GET: Stream response --
+    async Task TestGetStreamResponse(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"GET /api/test/stream", null));
+            await using var result = await Contracts.ProcessAsync(new TestGetStreamResponseContract());
+
+            if (!result.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"GET /api/test/stream FAILED: status={result.StatusCode}", false));
+                return;
+            }
+
+            using var ms = new MemoryStream();
+            await result.Data.CopyToAsync(ms);
+            var data = ms.ToArray();
+            var pass = data.Length == 256;
+            if (pass)
+            {
+                for (int i = 0; i < 256; i++)
+                {
+                    if (data[i] != i)
+                        pass = false;
+                }
+            }
+
+            cat.Items.Add(new CategoryItem(label, pass, $"len={data.Length}B"));
+
+            if (pass)
+                logs.Add(new LogEntry($"GET /api/test/stream: VERIFIED {data.Length} bytes", true));
+            else
+                logs.Add(new LogEntry($"GET /api/test/stream FAILED: data mismatch len={data.Length}", false));
+
+            await result.Data.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"GET /api/test/stream threw: {ex.Message}", false));
+        }
+    }
+
+    // -- GET: Route parameter no response --
+    async Task TestGetRouteParamNoResponse(CategoryResult cat, string label)
+    {
+        try
+        {
+            int num = Random.Shared.Next(20, 60);
+
+            logs.Add(new LogEntry($"GET /api/test/{num}", null));
+            using var result = await Contracts.ProcessAsync(new TestGetRouteParamNoResponseContract { Id = 42 });
+
+            var pass = result.StatusCode == num * 10;
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
+
+            if (pass)
+                logs.Add(new LogEntry($"GET /api/test/42 returned {result.StatusCode}", true));
+            else
+                logs.Add(new LogEntry($"GET /api/test/42 FAILED: status={result.StatusCode}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"GET /api/test/42 threw: {ex.Message}", false));
+        }
+    }
+
+    // -- GET: Route param + query params with verification --
+    async Task TestGetRouteQueryParam(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"GET /api/test/query/7?Filter=test&page=1", null));
+            await using var result = await Contracts.ProcessAsync(new TestGetRouteQueryParamContract
+            {
+                Id = 7,
+                Filter = "test",
+                Page = 1
+            });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "7test1";
+            cat.Items.Add(new CategoryItem(label, pass, $"ok={pass}"));
+
+            if (pass)
+            {
+                logs.Add(new LogEntry($"GET route+query SUCCESS: msg={result.Data?.Message ?? "NULL"}", true));
+            }
+            else
+            {
+                logs.Add(new LogEntry($"GET route+query FAILED: status={result.StatusCode}, msg={result.Data?.Message ?? "NULL"}", false));
+            }
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"GET route+query threw: {ex.Message}", false));
+        }
+    }
+
+    // -- POST: No data with response --
+    async Task TestPostNoData(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"POST /api/test/simple-response-no-req", null));
+            await using var result = await Contracts.ProcessAsync(new TestPostNoDataContract());
+
+            var pass = result.IsSuccessWithData;
+            cat.Items.Add(new CategoryItem(label, pass, $"ok={pass}"));
+
+            if (pass)
+                logs.Add(new LogEntry($"POST no data: msg=#{result.Data?.Message ?? "NULL"}", true));
+            else
+                logs.Add(new LogEntry($"POST no data FAILED: status={result.StatusCode}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"POST no data threw: {ex.Message}", false));
+        }
+    }
+
+    // -- POST: No body, no response --
+    async Task TestPostNoBodyNoResponse(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"POST /api/test/post", null));
+            using var result = await Contracts.ProcessAsync(new TestPostNoBodyNoResponseContract());
+
+            var pass = result.IsSuccess;
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
+
+            if (pass)
+                logs.Add(new LogEntry($"POST /api/test/post: SUCCESS", true));
+            else
+                logs.Add(new LogEntry($"POST /api/test/post FAILED: status={result.StatusCode}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"POST /api/test/post threw: {ex.Message}", false));
+        }
+    }
+
+    // -- POST: Simple body with number verification --
+    async Task TestPostSimpleBody(CategoryResult cat, string label)
+    {
+        try
+        {
+            var originalNumber = Random.Shared.NextInt64(100000);
+            var seed = Random.Shared.Next(999);
+            var expectedMsg = (originalNumber * seed).ToString();
+
+            logs.Add(new LogEntry($"POST /api/test/post-simple number={originalNumber} seed={seed}", null));
+            await using var result = await Contracts.ProcessAsync(new TestPostSimpleBodyContract
+            {
+                Number = originalNumber,
+                Seed = seed
+            });
+
+            if (!result.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"POST simple body FAILED: status={result.StatusCode}", false));
+                return;
+            }
+
+            var match = result.Data.Message == expectedMsg;
+
+            cat.Items.Add(new CategoryItem(label, match, $"client={expectedMsg} server={result.Data.Message}"));
+
+            if (match)
+                logs.Add(new LogEntry($"POST simple body: VERIFIED - client and server both computed {result.Data.Message}", true));
+            else
+                logs.Add(new LogEntry($"POST simple body: MISMATCH expected={expectedMsg} got={result.Data.Message}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"POST simple body threw: {ex.Message}", false));
+        }
+    }
+
+    // -- POST: Complex body with verification --
+    async Task TestPostComplexBody(CategoryResult cat, string label)
+    {
+        try
+        {
+            var mainNumber = Random.Shared.NextInt64(100000);
+            var mainSeed = Random.Shared.Next(999);
+
+            var dtos = new NumberDto[]
+            {
+                new NumberDto { Value = 31337, Seed = 11 },
+                new NumberDto { Value = 98765, Seed = 42 },
+                new NumberDto { Value = 12345L, Seed = 7 }
+            };
+
+            logs.Add(new LogEntry($"POST /api/test/complex main={mainNumber} seed={mainSeed} extra[3]", null));
+            await using var result = await Contracts.ProcessAsync(new TestPostComplexBodyContract
+            {
+                Number = mainNumber,
+                Seed = mainSeed,
+                Name = "TestName",
+                Numbers = dtos
+            });
+
+            if (!result.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"POST complex body FAILED: status={result.StatusCode}", false));
+                return;
+            }
+
+            var match = ComplexResponse.Validate(mainSeed, result.Data);
+
+            cat.Items.Add(new CategoryItem(label, match, $"match={match}"));
+
+            if (match)
+                logs.Add(new LogEntry($"POST complex body: match={match}", true));
+            else
+                logs.Add(new LogEntry($"POST complex body: MISMATCH", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"POST complex body threw: {ex.Message}", false));
+        }
+    }
+
+    // -- AES Encrypt then Decrypt round-trip --
+    async Task TestEncryptDecryptRoundTrip(CategoryResult cat)
+    {
+        try
+        {
+            var plaintext = System.Text.Encoding.UTF8.GetBytes($"Secret message #{Random.Shared.Next(99999)}");
+
+            logs.Add(new LogEntry($"POST /api/test/crypto/encrypt ({plaintext.Length} bytes)", null));
+
+            await using var encryptResult = await Contracts.ProcessAsync(new TestEncryptContract
+            {
+                Plaintext = plaintext
+            });
+
+            if (!encryptResult.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem("encrypt", false, $"status={encryptResult.StatusCode}"));
+                cat.Items.Add(new CategoryItem("decrypt", false, "skipped (encrypt failed)"));
+                logs.Add(new LogEntry($"Encrypt FAILED: status={encryptResult.StatusCode}", false));
+                return;
+            }
+
+            var cryptoResult = encryptResult.Data;
+            var cipherLen = cryptoResult.Ciphertext.Length;
+            var ivLen = cryptoResult.Nonce.Length;
+            var tagLen = cryptoResult.Tag.Length;
+            cat.Items.Add(new CategoryItem("encrypt", true, $"cipher={cipherLen}B iv={ivLen}B tag={tagLen}B"));
+            logs.Add(new LogEntry($"Encrypt OK: ciphertext={cipherLen}B iv={ivLen}B tag={tagLen}B", true));
+
+            // Now decrypt with server
+            logs.Add(new LogEntry($"POST /api/test/crypto/decrypt ({cipherLen} bytes)", null));
+
+            await using var decryptResult = await Contracts.ProcessAsync(new TestDecryptContract
+            {
+                Ciphertext = cryptoResult.Ciphertext,
+                Nonce = cryptoResult.Nonce,
+                Tag = cryptoResult.Tag
+            });
+
+            if (!decryptResult.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem("decrypt", false, $"status={decryptResult.StatusCode}"));
+                logs.Add(new LogEntry($"Decrypt FAILED: status={decryptResult.StatusCode}", false));
+                return;
+            }
+
+            var decryptedText = System.Text.Encoding.UTF8.GetString(decryptResult.Data);
+            var originalText = System.Text.Encoding.UTF8.GetString(plaintext);
+            var roundTripMatch = decryptedText == originalText;
+
+            cat.Items.Add(new CategoryItem("decrypt", roundTripMatch, $"len={decryptResult.Data.Length}B"));
+
+            if (roundTripMatch)
+                logs.Add(new LogEntry($"Decrypt: ROUND-TRIP VERIFIED plaintext matches!", true));
+            else
+                logs.Add(new LogEntry($"Decrypt: MISMATCH got=\"{decryptedText}\" vs \"{originalText}\"", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem("encrypt", false, ex.Message));
+            cat.Items.Add(new CategoryItem("decrypt", false, "skipped"));
+            logs.Add(new LogEntry($"Encrypt/Decrypt threw: {ex.Message}", false));
+        }
+    }
+
+    // -- Upload single file --
+    async Task TestUploadSingleFile(CategoryResult cat, string label)
+    {
+        try
+        {
+            var fileContent = System.Text.Encoding.UTF8.GetBytes($"Test file #{Random.Shared.Next(99999)}");
+            using var stream = new MemoryStream(fileContent);
+
+            logs.Add(new LogEntry($"POST /api/test/upload/single ({fileContent.Length} bytes)", null));
+
+            await using var result = await Contracts.ProcessAsync(new TestUploadSingleFileContract
+            {
+                File = new ContractFile(stream, "test.txt", "text/plain", fileContent.Length)
+            });
+
+            if (!result.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"Upload single FAILED: status={result.StatusCode}", false));
+                return;
+            }
+
+            var expectedSha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fileContent));
+            var match = result.Data.Sha256 == expectedSha && result.Data.Length == fileContent.Length;
+
+            cat.Items.Add(new CategoryItem(label, match, $"sha256={result.Data.Sha256[..12]}..."));
+
+            if (match)
+                logs.Add(new LogEntry($"Upload single: VERIFIED SHA256 matches len={result.Data.Length}", true));
+            else
+                logs.Add(new LogEntry($"Upload single: MISMATCH", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"Upload single threw: {ex.Message}", false));
+        }
+    }
+
+    // -- Upload multiple files --
+    async Task TestUploadMultipleFiles(CategoryResult cat, string label)
+    {
+        try
+        {
+            var content1 = System.Text.Encoding.UTF8.GetBytes("File one!");
+            using var ms1 = new MemoryStream(content1);
+            var content2 = System.Text.Encoding.UTF8.GetBytes("File two is longer data.");
+            using var ms2 = new MemoryStream(content2);
+
+            logs.Add(new LogEntry($"POST /api/test/upload/multiple (2 files)", null));
+
+            await using var result = await Contracts.ProcessAsync(new TestUploadMultipleFilesContract
+            {
+                File1 = new ContractFile(ms1, "file1.txt", "text/plain", content1.Length),
+                File2 = new ContractFile(ms2, "file2.txt", "text/plain", content2.Length)
+            });
+
+            if (!result.IsSuccessWithData || result.Data.Length != 2)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"Upload multiple FAILED: got items={result.Data?.Length}", false));
+                return;
+            }
+
+            var sha1 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content1));
+            var sha2 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content2));
+            var match = result.Data[0].Sha256 == sha1 && result.Data[1].Sha256 == sha2;
+
+            cat.Items.Add(new CategoryItem(label, match, $"file1={result.Data[0].Length}B file2={result.Data[1].Length}B"));
+
+            if (match)
+                logs.Add(new LogEntry($"Upload multiple: VERIFIED both SHA256s match", true));
+            else
+                logs.Add(new LogEntry($"Upload multiple: MISMATCH", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"Upload multiple threw: {ex.Message}", false));
+        }
+    }
+
+    // -- Upload combined byte array + files --
+    async Task TestUploadCombined(CategoryResult cat, string label)
+    {
+        try
+        {
+            var byteArrayData = new byte[64];
+            Random.Shared.NextBytes(byteArrayData);
+
+            var fileContent1 = System.Text.Encoding.UTF8.GetBytes("Combined test 1");
+            using var ms1 = new MemoryStream(fileContent1);
+            var fileContent2 = System.Text.Encoding.UTF8.GetBytes("Combined test 2 data here");
+            using var ms2 = new MemoryStream(fileContent2);
+
+            logs.Add(new LogEntry($"POST /api/test/upload/combined (byte[] + 2 files)", null));
+
+            await using var result = await Contracts.ProcessAsync(new TestUploadCombinedContract
+            {
+                Data = byteArrayData,
+                File1 = new ContractFile(ms1, "f1.bin", "application/octet-stream", fileContent1.Length),
+                File2 = new ContractFile(ms2, "f2.txt", "text/plain", fileContent2.Length)
+            });
+
+            if (!result.IsSuccessWithData || result.Data.Length != 3)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"Upload combined FAILED: got items={result.Data?.Length}", false));
+                return;
+            }
+
+            var sha0 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(byteArrayData));
+            var sha1 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fileContent1));
+            var sha2 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fileContent2));
+            var match = result.Data[0].Sha256 == sha0 && result.Data[0].Length == byteArrayData.Length
+                && result.Data[1].Sha256 == sha1 && result.Data[1].Length == fileContent1.Length
+                && result.Data[2].Sha256 == sha2 && result.Data[2].Length == fileContent2.Length;
+
+            var lenStr = "";
+            foreach (var item in result.Data)
+                lenStr += $"{item.Length}B ";
+
+            cat.Items.Add(new CategoryItem(label, match, $"3 items: {lenStr.Trim()}"));
+
+            if (match)
+                logs.Add(new LogEntry($"Upload combined: VERIFIED all 3 results correct", true));
+            else
+                logs.Add(new LogEntry($"Upload combined: MISMATCH", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"Upload combined threw: {ex.Message}", false));
+        }
+    }
+
+    // -- PUT: Simple body with verification --
+    async Task TestPutSimpleBody(CategoryResult cat, string label)
+    {
+        try
+        {
+            var originalNumber = Random.Shared.NextInt64(100000);
+            var seed = Random.Shared.Next(999);
+
+            logs.Add(new LogEntry($"PUT /api/test/update number={originalNumber} seed={seed}", null));
+            await using var result = await Contracts.ProcessAsync(new TestPutSimpleBodyContract
+            {
+                Number = originalNumber,
+                Seed = seed
+            });
+
+            if (!result.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"PUT simple body FAILED: status={result.StatusCode}", false));
+                return;
+            }
+
+            var match = ComplexResponse.Validate((int)(originalNumber ^ seed), result.Data);
+
+            cat.Items.Add(new CategoryItem(label, match, ""));
+
+            if (match)
+                logs.Add(new LogEntry($"PUT simple body: VERIFIED", true));
+            else
+                logs.Add(new LogEntry($"PUT simple body: MISMATCH", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"PUT simple body threw: {ex.Message}", false));
+        }
+    }
+
+    // -- PUT: Route param with verification --
+    async Task TestPutRouteParam(CategoryResult cat, string label)
+    {
+        try
+        {
+            var originalNumber = Random.Shared.NextInt64(100000);
+            var seed = Random.Shared.Next(999);
+
+            logs.Add(new LogEntry($"PUT /api/test/update/{seed} number={originalNumber}", null));
+            await using var result = await Contracts.ProcessAsync(new TestPutRouteParamContract
+            {
+                Number = originalNumber,
+                Seed = seed
+            });
+
+            if (!result.IsSuccessWithData)
+            {
+                cat.Items.Add(new CategoryItem(label, false, $"status={result.StatusCode}"));
+                logs.Add(new LogEntry($"PUT route param FAILED: status={result.StatusCode}", false));
+                return;
+            }
+
+            var match = (originalNumber * seed).ToString() == result.Data.Message;
+
+            cat.Items.Add(new CategoryItem(label, match, $"route={seed} msg={result.Data.Message}"));
+
+            if (match)
+                logs.Add(new LogEntry($"PUT route param: VERIFIED msg={result.Data.Message}", true));
+            else
+                logs.Add(new LogEntry($"PUT route param: MISMATCH expected={originalNumber * seed} got={result.Data.Message}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"PUT route param threw: {ex.Message}", false));
+        }
+    }
+
+    // -- DELETE: No response --
+    async Task TestDeleteNoBodyNoResponse(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry($"DELETE /api/test/remove", null));
+            using var result = await Contracts.ProcessAsync(new TestDeleteNoBodyNoResponseContract());
+
+            var pass = result.IsSuccess;
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
+
+            if (pass)
+                logs.Add(new LogEntry($"DELETE /api/test/remove: SUCCESS", true));
+            else
+                logs.Add(new LogEntry($"DELETE /api/test/remove FAILED: status={result.StatusCode}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"DELETE threw: {ex.Message}", false));
+        }
+    }
+
+    sealed class CategoryResult
+    {
+        public string Name { get; set; }
+        public List<CategoryItem> Items { get; set; } = new();
+        public int Total => Items.Count;
+        public int Passed => Items.Count(i => i.Pass);
+        public bool AllPass => Passed == Total;
+
+        public CategoryResult(string name) => Name = name;
+    }
+
+    sealed class CategoryItem
+    {
+        public string Label { get; set; }
+        public bool Pass { get; set; }
+        public string Detail { get; set; }
+
+        public CategoryItem(string label, bool pass, string detail)
+        {
+            Label = label;
+            Pass = pass;
+            Detail = detail;
+        }
+    }
+
+    sealed class LogEntry
+    {
+        public DateTime Timestamp => created;
+        public string Message { get; set; }
+        public bool? Success { get; set; }
+        public string Type { get; set; }
+
+        readonly DateTime created = DateTime.Now;
+
+        public LogEntry(string message, bool? success)
+        {
+            Message = message;
+            Success = success;
+            Type = success == true ? "bg-light" : success == false ? "bg-danger bg-opacity-10" : "";
+        }
+    }
+}
