@@ -7,15 +7,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContra
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.SourceGenerator", "Kanawanagasaki.BlazorContracts.SourceGenerator\Kanawanagasaki.BlazorContracts.SourceGenerator.csproj", "{4A4C7610-03D1-4C14-8E80-6CC4BFAC859B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Client.SourceGenerator", "Kanawanagasaki.BlazorContracts.Client.SourceGenerator\Kanawanagasaki.BlazorContracts.Client.SourceGenerator.csproj", "{8369877B-9466-4E5A-9BA1-20FF713A3A1C}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Demo.Shared", "Kanawanagasaki.BlazorContracts.Demo.Shared\Kanawanagasaki.BlazorContracts.Demo.Shared.csproj", "{CD319372-5713-4BD9-8E11-AD956D660CE9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Demo.Client", "Kanawanagasaki.BlazorContracts.Demo.Client\Kanawanagasaki.BlazorContracts.Demo.Client.csproj", "{7CB2C78D-041D-46D1-8004-34654AD73157}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Demo", "Kanawanagasaki.BlazorContracts.Demo\Kanawanagasaki.BlazorContracts.Demo.csproj", "{CF0FECE7-DF8E-47FB-BD86-3092A7ED69ED}"
-EndProject
-Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Kanawanagasaki.BlazorContracts.SourceGenerator.Shared", "Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.shproj", "{B46A3182-03BD-4E53-B4E4-7B2B2A9DF10B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C158622E-7B36-469D-9088-4B2773E48E7D}"
 	ProjectSection(SolutionItems) = preProject
@@ -56,18 +52,6 @@ Global
 		{4A4C7610-03D1-4C14-8E80-6CC4BFAC859B}.Release|x64.Build.0 = Release|Any CPU
 		{4A4C7610-03D1-4C14-8E80-6CC4BFAC859B}.Release|x86.ActiveCfg = Release|Any CPU
 		{4A4C7610-03D1-4C14-8E80-6CC4BFAC859B}.Release|x86.Build.0 = Release|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Debug|x64.Build.0 = Debug|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Debug|x86.Build.0 = Debug|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Release|x64.ActiveCfg = Release|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Release|x64.Build.0 = Release|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Release|x86.ActiveCfg = Release|Any CPU
-		{8369877B-9466-4E5A-9BA1-20FF713A3A1C}.Release|x86.Build.0 = Release|Any CPU
 		{CD319372-5713-4BD9-8E11-AD956D660CE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{CD319372-5713-4BD9-8E11-AD956D660CE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CD319372-5713-4BD9-8E11-AD956D660CE9}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -113,7 +97,5 @@ Global
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
 		Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.projitems*{4a4c7610-03d1-4c14-8e80-6cc4bfac859b}*SharedItemsImports = 5
-		Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.projitems*{8369877b-9466-4e5a-9ba1-20ff713a3a1c}*SharedItemsImports = 5
-		Kanawanagasaki.BlazorContracts.SourceGenerator.Shared\Kanawanagasaki.BlazorContracts.SourceGenerator.Shared.projitems*{b46a3182-03bd-4e53-b4e4-7b2b2a9df10b}*SharedItemsImports = 13
 	EndGlobalSection
 EndGlobal

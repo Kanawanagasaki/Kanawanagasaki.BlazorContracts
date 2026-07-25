@@ -3,7 +3,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
-public class ContractResult : IDisposable
+public class ContractResult
 {
     [JsonIgnore]
     public bool IsSuccess => StatusCode / 100 == 2;
@@ -13,13 +13,7 @@ public class ContractResult : IDisposable
     [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
 
-    [JsonIgnore]
-    public HttpResponseMessage? HttpResponse { get; set; }
-
-    public ContractResult()
-    {
-        StatusCode = 200;
-    }
+    public ContractResult() { }
 
     public ContractResult(int statusCode)
     {
@@ -31,14 +25,9 @@ public class ContractResult : IDisposable
         StatusCode = statusCode;
         ErrorMessage = errorMessage;
     }
-
-    public virtual void Dispose()
-    {
-        HttpResponse?.Dispose();
-    }
 }
 
-public class ContractResult<TData> : ContractResult, IAsyncDisposable
+public class ContractResult<TData> : ContractResult
 {
     [JsonPropertyName("data")]
     public TData? Data { get; set; }
@@ -46,7 +35,7 @@ public class ContractResult<TData> : ContractResult, IAsyncDisposable
     [JsonIgnore, MemberNotNullWhen(true, nameof(Data))]
     public bool IsSuccessWithData => IsSuccess && Data is not null;
 
-    public ContractResult() : base(200) { }
+    public ContractResult() : base() { }
 
     public ContractResult(int statusCode) : base(statusCode) { }
 
@@ -57,48 +46,44 @@ public class ContractResult<TData> : ContractResult, IAsyncDisposable
         Data = data;
     }
 
+    public DisposableContractResult<TData> AsDisposable()
+        => new DisposableContractResult<TData>(StatusCode, ErrorMessage, Data);
+
     public static implicit operator ContractResult<TData>(TData data)
         => new ContractResult<TData>(data);
+}
 
-    public override void Dispose()
+public class DisposableContractResult<TData> : ContractResult<TData>, IDisposable, IAsyncDisposable
+{
+    [JsonIgnore]
+    public HttpResponseMessage? HttpResponse { get; set; }
+
+    public DisposableContractResult() : base() { }
+
+    public DisposableContractResult(int statusCode, string? errorMessage) : base(statusCode, errorMessage) { }
+
+    public DisposableContractResult(TData data) : base(data) { }
+
+    public DisposableContractResult(int statusCode, string? errorMessage, TData? data = default) : base(200, errorMessage)
+    {
+        Data = data;
+    }
+
+    public virtual void Dispose()
     {
         if (Data is IDisposable disposableData)
             disposableData.Dispose();
 
-        base.Dispose();
+        HttpResponse?.Dispose();
     }
 
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (Data is IAsyncDisposable asyncDisposableData)
             await asyncDisposableData.DisposeAsync();
         else if (Data is IDisposable disposableData)
             disposableData.Dispose();
 
-        base.Dispose();
+        HttpResponse?.Dispose();
     }
 }
-
-//public class DisposableContractResult<TData> : ContractResult<TData>, IDisposable, IAsyncDisposable
-//{
-//    [JsonIgnore]
-//    public HttpResponseMessage? HttpResponse { get; set; }
-
-//    public virtual void Dispose()
-//    {
-//        if (Data is IDisposable disposableData)
-//            disposableData.Dispose();
-
-//        HttpResponse?.Dispose();
-//    }
-
-//    public virtual async ValueTask DisposeAsync()
-//    {
-//        if (Data is IAsyncDisposable asyncDisposableData)
-//            await asyncDisposableData.DisposeAsync();
-//        else if (Data is IDisposable disposableData)
-//            disposableData.Dispose();
-
-//        HttpResponse?.Dispose();
-//    }
-//}

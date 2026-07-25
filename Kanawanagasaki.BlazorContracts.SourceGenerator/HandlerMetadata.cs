@@ -1,6 +1,5 @@
 ﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
-using Kanawanagasaki.BlazorContracts.SourceGenerator.Shared;
 using Microsoft.CodeAnalysis;
 
 internal record HandlerMetadata
@@ -16,13 +15,13 @@ internal record HandlerMetadata
     private HandlerMetadata(INamedTypeSymbol handler, ContractMetadata contract)
     {
         HandlerName = handler.Name;
-        HandlerFullyQualifiedName = handler.ToDisplayString(NamingHelper.SYMB_DISPLAY_FORMAT);
+        HandlerFullyQualifiedName = handler.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT);
         Contract = contract;
 
         int injectedServiceIndex = 1;
 
         var constructor = handler.Constructors.FirstOrDefault(x => x.DeclaredAccessibility is Accessibility.Public);
-        var constructorTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(NamingHelper.SYMB_DISPLAY_FORMAT_GENERICS)).ToArray() ?? [];
+        var constructorTypes = constructor?.Parameters.Select(x => x.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS)).ToArray() ?? [];
         foreach (var type in constructorTypes)
         {
             int index = injectedServiceIndex++;
@@ -31,7 +30,7 @@ internal record HandlerMetadata
         }
 
         var handlerProps = GetAllProperties(handler);
-        var handlerPropTypes = handlerProps.Select(x => (TypeName: x.Type.ToDisplayString(NamingHelper.SYMB_DISPLAY_FORMAT_GENERICS), x.Name)).ToArray();
+        var handlerPropTypes = handlerProps.Select(x => (TypeName: x.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS), x.Name)).ToArray();
         foreach (var (type, name) in handlerPropTypes)
         {
             int index = injectedServiceIndex++;
@@ -64,7 +63,7 @@ internal record HandlerMetadata
     {
         metadata = null;
 
-        var contractHandlerIFace = handler.AllInterfaces.FirstOrDefault(x => x.ToDisplayString(NamingHelper.SYMB_DISPLAY_FORMAT) == Constants.IContractHandlerFullName);
+        var contractHandlerIFace = handler.AllInterfaces.FirstOrDefault(x => x.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.IContractHandlerFullName);
         if (contractHandlerIFace is null)
             return false;
         if (contractHandlerIFace.TypeArguments.Length == 0)

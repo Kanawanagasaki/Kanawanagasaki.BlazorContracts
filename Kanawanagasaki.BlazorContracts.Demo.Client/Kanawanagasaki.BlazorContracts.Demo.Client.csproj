@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
@@ -8,6 +8,8 @@
 		<StaticWebAssetProjectMode>Default</StaticWebAssetProjectMode>
 		<BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
 		<LangVersion>latest</LangVersion>
+
+		<BlazorContracts>ClientService</BlazorContracts>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -23,7 +25,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.Client.SourceGenerator\Kanawanagasaki.BlazorContracts.Client.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+		<CompilerVisibleProperty Include="BlazorContracts" />
+		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.SourceGenerator\Kanawanagasaki.BlazorContracts.SourceGenerator.csproj"
+						  OutputItemType="Analyzer"
+						  ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
 </Project>

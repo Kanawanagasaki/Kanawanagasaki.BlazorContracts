@@ -46,7 +46,7 @@
         try
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            using var result = await Contracts.ProcessAsync(new HealthCheckContract());
+            var result = await Contracts.ProcessAsync(new HealthCheckContract());
             sw.Stop();
             lastStatus = result.StatusCode;
             lastError = result.ErrorMessage;

@@ -60,7 +60,7 @@ else
         forecast = null;
         errorMessage = null;
 
-        await using var result = await Contracts.ProcessAsync(new WeatherGetByIdContract { Id = Id });
+        var result = await Contracts.ProcessAsync(new WeatherGetByIdContract { Id = Id });
         if (result.IsSuccessWithData)
         {
             forecast = result.Data;

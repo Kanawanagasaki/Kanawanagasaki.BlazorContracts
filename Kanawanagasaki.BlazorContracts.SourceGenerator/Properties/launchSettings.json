@@ -1,8 +1,16 @@
 {
     "profiles": {
-        "DebugRoslynComponent": {
+        "ASP.NET Core": {
             "commandName": "DebugRoslynComponent",
             "targetProject": "..\\Kanawanagasaki.BlazorContracts.Demo\\Kanawanagasaki.BlazorContracts.Demo.csproj"
+        },
+        "Blazor App": {
+            "commandName": "DebugRoslynComponent",
+            "targetProject": "..\\Kanawanagasaki.BlazorContracts.Demo.Client\\Kanawanagasaki.BlazorContracts.Demo.Client.csproj"
+        },
+        "Shared": {
+            "commandName": "DebugRoslynComponent",
+            "targetProject": "..\\Kanawanagasaki.BlazorContracts.Demo.Shared\\Kanawanagasaki.BlazorContracts.Demo.Shared.csproj"
         }
     }
 }

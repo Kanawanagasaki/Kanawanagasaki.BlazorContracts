@@ -1,15 +1,21 @@
 ﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
-using Kanawanagasaki.BlazorContracts.SourceGenerator.Shared;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Collections.Immutable;
 
 [Generator]
-public class ContractsExtensionsGenerator : IIncrementalGenerator
+public class ContractsEndpointsGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+        var config = context.AnalyzerConfigOptionsProvider.Select((options, _) =>
+        {
+            options.GlobalOptions.TryGetValue("build_property.BlazorContracts", out var value);
+            return value;
+        });
+
         var handlersDeclarations = context.SyntaxProvider.CreateSyntaxProvider
             (
                 static (node, _) => node is ClassDeclarationSyntax classDecl && classDecl.BaseList is not null,
@@ -31,14 +37,19 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                     ret.Add(metadata);
             }
 
-            return ret;
+            return ret.ToImmutableArray();
         });
 
-        context.RegisterSourceOutput(compilations, Execute);
+        context.RegisterSourceOutput(config.Combine(compilations), Execute);
     }
 
-    private void Execute(SourceProductionContext context, List<HandlerMetadata> list)
+    private void Execute(SourceProductionContext context, (string?, ImmutableArray<HandlerMetadata>) tuple)
     {
+        var (config, list) = tuple;
+        var optIns = config?.ToLowerInvariant().Split(',') ?? [];
+        if (!optIns.Contains("endpoints"))
+            return;
+
         using var sw = new StringWriter();
         using var iw = new IndentedTextWriter(sw);
         iw.WriteLine("""
@@ -49,14 +60,8 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                 using Microsoft.AspNetCore.Builder;
                 using System.Linq;
 
-                public static class ContractsExtensions
+                public static class ContractsEndpoints
                 {
-                    public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddContracts(this Microsoft.Extensions.DependencyInjection.IServiceCollection __services)
-                    {
-                        __services.AddScoped<Kanawanagasaki.BlazorContracts.IContractsService, ContractsService>();
-                        return __services;
-                    }
-
                     public static void MapContracts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder __endpoints)
                     {
                         var __jsonOptions = new System.Text.Json.JsonSerializerOptions
@@ -112,6 +117,7 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
         foreach (var item in list)
         {
             iw.IndentLevel = 2;
+            iw.WriteLine();
             iw.WriteLineAndIncrease($"__endpoints.Map{item.Contract.VerbStr}(\"{item.Contract.Endpoint}\", async (");
 
             if (item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put")
@@ -151,7 +157,13 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
 
             iw.WriteLine("System.Threading.CancellationToken __cancellationToken) =>");
             iw.DecreaseAndWriteLine("{");
-            iw.IncreaseAndWriteLine($$"""
+
+            if (((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsContractFile)) || item.Contract.IsDisposableReturnType)
+                iw.IncreaseAndWriteLine("var __toDispose = new System.Collections.Generic.List<System.IDisposable>();");
+            else
+                iw.IndentLevel++;
+
+            iw.WriteLine($$"""
                 try
                 {
                 """);
@@ -160,34 +172,79 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
 
             if ((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
             {
-                iw.WriteLine($$"""
-                    var __form = await __httpRequest.ReadFormAsync();
+                if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
+                {
+                    iw.WriteLine($$"""
+                        var __form = await __httpRequest.ReadFormAsync();
 
-                    var __contractJson = __form["{{item.Contract.Name}}"].FirstOrDefault();
-                    if (__contractJson is null)
-                    {
-                        var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                        return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
-                    }
+                        var __contractJson = __form["{{item.Contract.Name}}"].FirstOrDefault();
+                        if (__contractJson is null)
+                        {
+                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+                            var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
+                            var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
+                            __httpResponse.ContentType = "application/json; charset=utf-8";
+                            __httpResponse.ContentLength = __jsonBytes.Length;
+                            await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
+                            return;
+                        }
 
-                    {{item.Contract.FullyQualifiedName}} __contract;
-                    try
-                    {
-                        __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.Contract.FullyQualifiedName}}>(__contractJson);
-                        if (__contract is null)
+                        {{item.Contract.FullyQualifiedName}} __contract;
+                        try
+                        {
+                            __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.Contract.FullyQualifiedName}}>(__contractJson);
+                            if (__contract is null)
+                            {
+                                var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+                                var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
+                                var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
+                                __httpResponse.ContentType = "application/json; charset=utf-8";
+                                __httpResponse.ContentLength = __jsonBytes.Length;
+                                await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
+                                return;
+                            }
+                        }
+                        catch
+                        {
+                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+                            var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
+                            var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
+                            __httpResponse.ContentType = "application/json; charset=utf-8";
+                            __httpResponse.ContentLength = __jsonBytes.Length;
+                            await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
+                            return;
+                        }
+                        """);
+                }
+                else
+                {
+                    iw.WriteLine($$"""
+                        var __form = await __httpRequest.ReadFormAsync();
+
+                        var __contractJson = __form["{{item.Contract.Name}}"].FirstOrDefault();
+                        if (__contractJson is null)
                         {
                             var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
                             return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
                         }
-                    }
-                    catch
-                    {
-                        var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                        return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
-                    }
 
-                    var __toDispose = new System.Collections.Generic.List<System.IDisposable>();
-                    """);
+                        {{item.Contract.FullyQualifiedName}} __contract;
+                        try
+                        {
+                            __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.Contract.FullyQualifiedName}}>(__contractJson);
+                            if (__contract is null)
+                            {
+                                var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+                                return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
+                            }
+                        }
+                        catch
+                        {
+                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+                            return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
+                        }
+                        """);
+                }
 
                 foreach (var prop in item.Contract.Properties.Values)
                 {
@@ -244,15 +301,12 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
             }
             iw.WriteLine(";");
 
-            iw.WriteLine($"{(item.Contract.HasResponse ? "await using " : "")}var __result = await __handler.HandleAsync(__contract, __cancellationToken);");
+            iw.WriteLine($"var __result = await __handler.HandleAsync(__contract, __cancellationToken);");
 
-
-            if ((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
+            if (item.Contract.IsDisposableReturnType)
             {
-                iw.WriteLine($$"""
-                    foreach (var __obj in __toDispose)
-                        __obj.Dispose();
-                    """);
+                iw.WriteLineAndIncrease("if(__result.Data is not null)");
+                iw.WriteLineAndDecrease("__toDispose.Add(__result.Data);");
             }
 
             if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
@@ -388,13 +442,30 @@ public class ContractsExtensionsGenerator : IIncrementalGenerator
                     """);
             }
             iw.DecreaseAndWriteLine("}");
+
+            if (((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsContractFile)) || item.Contract.IsDisposableReturnType)
+            {
+                iw.WriteLine("""
+                finally
+                {
+                    foreach (var __disposable in __toDispose)
+                    {
+                        if(__disposable is IAsyncDisposable __asyncDisposable)
+                            await __asyncDisposable.DisposeAsync();
+                        else
+                            __disposable.Dispose();
+                    }
+                }
+                """);
+            }
+
             iw.DecreaseAndWriteLine("});");
         }
 
         iw.DecreaseAndWriteLine("}");
         iw.DecreaseAndWriteLine("}");
 
-        context.AddSource("ContractsExtensions.g.cs", sw.ToString());
+        context.AddSource("ContractsEndpoints.g.cs", sw.ToString());
     }
 
     private static List<T> DeepSearchForType<T>(SyntaxNode node) where T : SyntaxNode

@@ -111,7 +111,7 @@ else
                 WithSummary = withSummaryInput
             };
 
-            await using var result = await Contracts.ProcessAsync(contract);
+            var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
                 forecasts = result.Data;

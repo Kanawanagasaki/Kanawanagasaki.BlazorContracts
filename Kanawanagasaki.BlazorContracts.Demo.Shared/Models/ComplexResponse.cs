@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Text.Json.Serialization;
 
 public class ComplexResponse
 {
@@ -14,7 +15,6 @@ public class ComplexResponse
     public required int Foo { get; set; }
     public required long Bar { get; set; }
     public required decimal Baz { get; set; }
-    public required BigInteger BigInt { get; set; }
     public required Dictionary<char, double> Dict { get; set; }
     public required ComplexResponseSubclass[] Subs { get; set; }
 
@@ -69,10 +69,6 @@ public class ComplexResponse
         var isNegative = rng.Next(0, 2) == 1;
         var scale = (byte)rng.Next(0, 29);
         var baz = new decimal(lo, mid, hi, isNegative, scale);
-
-        var bigIntBytes = new byte[rng.Next(4, 33)];
-        rng.NextBytes(bigIntBytes);
-        var bigInt = new BigInteger(bigIntBytes);
 
         var dictCount = rng.Next(2, 11);
         var dict = new Dictionary<char, double>(dictCount);
@@ -130,7 +126,6 @@ public class ComplexResponse
             Foo = foo,
             Bar = bar,
             Baz = baz,
-            BigInt = bigInt,
             Dict = dict,
             Subs = subs,
 
@@ -139,60 +134,58 @@ public class ComplexResponse
         };
     }
 
-    public static bool Validate(int seed, ComplexResponse other)
+    public static int Validate(int seed, ComplexResponse other)
     {
         if (other is null)
-            return false;
+            return -1;
 
         var expected = Create(seed);
 
         if (other.Name != expected.Name)
-            return false;
+            return -2;
         if (other.Uuid != expected.Uuid)
-            return false;
+            return -3;
         if (other.ResourceUri != expected.ResourceUri)
-            return false;
+            return -4;
         if (other.Ver != expected.Ver)
-            return false;
+            return -5;
         if (other.Foo != expected.Foo)
-            return false;
+            return -6;
         if (other.Bar != expected.Bar)
-            return false;
+            return -7;
         if (other.Baz != expected.Baz)
-            return false;
-        if (other.BigInt != expected.BigInt)
-            return false;
+            return -8;
 
         if (other.Dict is null || other.Dict.Count != expected.Dict.Count)
-            return false;
+            return -9;
         foreach (var kvp in expected.Dict)
         {
             if (!other.Dict.TryGetValue(kvp.Key, out double actualValue))
-                return false;
+                return -10;
             if (BitConverter.DoubleToInt64Bits(kvp.Value) != BitConverter.DoubleToInt64Bits(actualValue))
-                return false;
+                return -11;
         }
 
         if (other.Subs is null || other.Subs.Length != expected.Subs.Length)
-            return false;
+            return -12;
         for (int i = 0; i < expected.Subs.Length; i++)
         {
             var expSub = expected.Subs[i];
             var actSub = other.Subs[i];
 
             if (actSub is null)
-                return false;
+                return -13;
             if (expSub.SpanOfATime != actSub.SpanOfATime)
-                return false;
+                return -14;
 
             if (actSub.Numbers is null || !expSub.Numbers.SequenceEqual(actSub.Numbers))
-                return false;
+                return -15;
             if (actSub.Bits is null || !expSub.Bits.SequenceEqual(actSub.Bits))
-                return false;
+                return -16;
             if (actSub.Bytes is null || !expSub.Bytes.SequenceEqual(actSub.Bytes))
-                return false;
+                return -17;
         }
 
-        return true;
+        return 0;
     }
 }

@@ -1,4 +1,4 @@
-﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator.Shared;
+﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
 using System.Text;
 

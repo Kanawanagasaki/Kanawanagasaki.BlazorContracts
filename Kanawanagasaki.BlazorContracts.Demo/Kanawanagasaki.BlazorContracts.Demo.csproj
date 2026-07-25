@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
@@ -6,6 +6,8 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
 		<LangVersion>latest</LangVersion>
+		
+		<BlazorContracts>Endpoints,ServerService</BlazorContracts>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -19,6 +21,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<CompilerVisibleProperty Include="BlazorContracts" />
 		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.SourceGenerator\Kanawanagasaki.BlazorContracts.SourceGenerator.csproj"
 						  OutputItemType="Analyzer"
 						  ReferenceOutputAssembly="false" />

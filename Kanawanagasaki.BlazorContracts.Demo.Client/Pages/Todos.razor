@@ -217,7 +217,7 @@ else
             _ => null
         };
 
-        await using var result = await Contracts.ProcessAsync(new TodoGetAllContract { FilterIsDone = filterIsDone });
+        var result = await Contracts.ProcessAsync(new TodoGetAllContract { FilterIsDone = filterIsDone });
         if (result.IsSuccessWithData)
         {
             todos = result.Data;
@@ -240,7 +240,7 @@ else
                 OlderThanDays = olderThanDaysInput,
                 DryRun = dryRunInput
             };
-            await using var result = await Contracts.ProcessAsync(contract);
+            var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
                 deleteDoneResult = result.Data;
@@ -277,7 +277,7 @@ else
                 Title = newTitle.Trim(),
                 IsDone = newIsDone
             };
-            await using var result = await Contracts.ProcessAsync(contract);
+            var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
                 statusMessage = $"Created todo #{result.Data!.Id}: {result.Data.Title}";
@@ -323,7 +323,7 @@ else
             Title = editingTitle.Trim(),
             IsDone = editingIsDone
         };
-        await using var result = await Contracts.ProcessAsync(contract);
+        var result = await Contracts.ProcessAsync(contract);
         if (result.IsSuccessWithData)
         {
             statusMessage = $"Updated todo #{result.Data!.Id}.";
@@ -339,7 +339,7 @@ else
 
     private async Task Delete(int id)
     {
-        using var result = await Contracts.ProcessAsync(new TodoDeleteContract { Id = id });
+        var result = await Contracts.ProcessAsync(new TodoDeleteContract { Id = id });
         if (result.IsSuccess)
         {
             statusMessage = $"Deleted todo #{id}.";
@@ -357,7 +357,7 @@ else
         clearing = true;
         try
         {
-            using var result = await Contracts.ProcessAsync(new TodoClearAllContract());
+            var result = await Contracts.ProcessAsync(new TodoClearAllContract());
             if (result.IsSuccess)
             {
                 statusMessage = "All todos cleared.";

@@ -160,7 +160,7 @@
                 MediaType = file.ContentType,
                 Content = bytes
             };
-            await using var result = await Contracts.ProcessAsync(contract);
+            var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
                 bytesUploadResult = result.Data;
@@ -192,7 +192,7 @@
                 FileName = file.Name,
                 Content = new ContractFile(stream, file.Name, file.ContentType, file.Size)
             };
-            await using var result = await Contracts.ProcessAsync(contract);
+            var result = await Contracts.ProcessAsync(contract);
             if (result.IsSuccessWithData)
             {
                 streamUploadResult = result.Data;
@@ -214,7 +214,7 @@
     {
         try
         {
-            await using var result = await Contracts.ProcessAsync(new FileDownloadBytesContract { Id = downloadId });
+            var result = await Contracts.ProcessAsync(new FileDownloadBytesContract { Id = downloadId });
             if (result.IsSuccessWithData)
             {
                 downloadedInfo = BuildPreview(result.Data, "byte[] download");

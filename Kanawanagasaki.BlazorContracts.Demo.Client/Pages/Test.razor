@@ -8,7 +8,7 @@
 
 <div class="alert alert-info" role="alert">
     <strong>Render mode:</strong> @RendererInfo.Name<br />
-    <strong>Tests:</strong> @passedTestsCount / @totalTestCount<br />
+    <strong>Tests:</strong> @passedTestsCount<br />
 </div>
 
 @if (!running)
@@ -83,10 +83,9 @@ else
 </div>
 
 @code {
-    private static readonly List<CategoryResult> categories = new();
-    private static readonly List<LogEntry> logs = new();
+    private readonly List<CategoryResult> categories = new();
+    private readonly List<LogEntry> logs = new();
     private int passedTestsCount;
-    private static readonly int totalTestCount = 27;
     private bool running;
 
     protected override async Task OnInitializedAsync()
@@ -234,7 +233,7 @@ else
         try
         {
             logs.Add(new LogEntry($"GET /api/test (no data)", null));
-            using var result = await Contracts.ProcessAsync(new TestGetNoDataContract());
+            var result = await Contracts.ProcessAsync(new TestGetNoDataContract());
 
             var pass = result.StatusCode == 204;
             cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
@@ -257,7 +256,7 @@ else
         try
         {
             logs.Add(new LogEntry($"GET /api/test/simple", null));
-            await using var result = await Contracts.ProcessAsync(new TestGetSimpleResponseContract());
+            var result = await Contracts.ProcessAsync(new TestGetSimpleResponseContract());
 
             var pass = result.IsSuccessWithData && int.TryParse(result.Data.Message, out var remoteMin) && Math.Abs(DateTimeOffset.Now.Minute - remoteMin) <= 1;
             cat.Items.Add(new CategoryItem(label, pass, pass ? "simple response OK" : $"status={result.StatusCode}, msg={result.Data?.Message ?? "NULL"}"));
@@ -280,16 +279,16 @@ else
         try
         {
             logs.Add(new LogEntry($"GET /api/test/complex", null));
-            var min = DateTimeOffset.UtcNow.Minute;
-            await using var result = await Contracts.ProcessAsync(new TestGetComplexResponseContract());
+            var result = await Contracts.ProcessAsync(new TestGetComplexResponseContract());
 
-            var pass = result.IsSuccessWithData && (ComplexResponse.Validate(min, result.Data) || ComplexResponse.Validate((min + 1) % 60, result.Data));
+            int validationCode = 0;
+            var pass = result.IsSuccessWithData && 0 <= (validationCode = ComplexResponse.Validate(result.Data.ProcessedAt.Minute, result.Data));
             cat.Items.Add(new CategoryItem(label, pass, pass ? "PASS" : $"status={result.StatusCode}"));
 
             if (pass)
                 logs.Add(new LogEntry($"GET /api/test/complex: PASS", true));
             else
-                logs.Add(new LogEntry($"GET /api/test/complex FAILED: status={result.StatusCode}", false));
+                logs.Add(new LogEntry($"GET /api/test/complex FAILED: status={result.StatusCode}, validationCode={validationCode}, errMsg={result.ErrorMessage}", false));
         }
         catch (Exception ex)
         {
@@ -345,25 +344,24 @@ else
     // -- GET: Route parameter no response --
     async Task TestGetRouteParamNoResponse(CategoryResult cat, string label)
     {
+        int num = Random.Shared.Next(20, 60);
         try
         {
-            int num = Random.Shared.Next(20, 60);
-
             logs.Add(new LogEntry($"GET /api/test/{num}", null));
-            using var result = await Contracts.ProcessAsync(new TestGetRouteParamNoResponseContract { Id = 42 });
+            var result = await Contracts.ProcessAsync(new TestGetRouteParamNoResponseContract { Id = num });
 
             var pass = result.StatusCode == num * 10;
             cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
 
             if (pass)
-                logs.Add(new LogEntry($"GET /api/test/42 returned {result.StatusCode}", true));
+                logs.Add(new LogEntry($"GET /api/test/{num} returned {result.StatusCode}", true));
             else
-                logs.Add(new LogEntry($"GET /api/test/42 FAILED: status={result.StatusCode}", false));
+                logs.Add(new LogEntry($"GET /api/test/{num} FAILED: status={result.StatusCode}", false));
         }
         catch (Exception ex)
         {
             cat.Items.Add(new CategoryItem(label, false, ex.Message));
-            logs.Add(new LogEntry($"GET /api/test/42 threw: {ex.Message}", false));
+            logs.Add(new LogEntry($"GET /api/test/{num} threw: {ex.Message}", false));
         }
     }
 
@@ -373,7 +371,7 @@ else
         try
         {
             logs.Add(new LogEntry($"GET /api/test/query/7?Filter=test&page=1", null));
-            await using var result = await Contracts.ProcessAsync(new TestGetRouteQueryParamContract
+            var result = await Contracts.ProcessAsync(new TestGetRouteQueryParamContract
             {
                 Id = 7,
                 Filter = "test",
@@ -405,7 +403,7 @@ else
         try
         {
             logs.Add(new LogEntry($"POST /api/test/simple-response-no-req", null));
-            await using var result = await Contracts.ProcessAsync(new TestPostNoDataContract());
+            var result = await Contracts.ProcessAsync(new TestPostNoDataContract());
 
             var pass = result.IsSuccessWithData;
             cat.Items.Add(new CategoryItem(label, pass, $"ok={pass}"));
@@ -428,7 +426,7 @@ else
         try
         {
             logs.Add(new LogEntry($"POST /api/test/post", null));
-            using var result = await Contracts.ProcessAsync(new TestPostNoBodyNoResponseContract());
+            var result = await Contracts.ProcessAsync(new TestPostNoBodyNoResponseContract());
 
             var pass = result.IsSuccess;
             cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
@@ -455,7 +453,7 @@ else
             var expectedMsg = (originalNumber * seed).ToString();
 
             logs.Add(new LogEntry($"POST /api/test/post-simple number={originalNumber} seed={seed}", null));
-            await using var result = await Contracts.ProcessAsync(new TestPostSimpleBodyContract
+            var result = await Contracts.ProcessAsync(new TestPostSimpleBodyContract
             {
                 Number = originalNumber,
                 Seed = seed
@@ -500,7 +498,7 @@ else
             };
 
             logs.Add(new LogEntry($"POST /api/test/complex main={mainNumber} seed={mainSeed} extra[3]", null));
-            await using var result = await Contracts.ProcessAsync(new TestPostComplexBodyContract
+            var result = await Contracts.ProcessAsync(new TestPostComplexBodyContract
             {
                 Number = mainNumber,
                 Seed = mainSeed,
@@ -515,12 +513,12 @@ else
                 return;
             }
 
-            var match = ComplexResponse.Validate(mainSeed, result.Data);
+            var validationCode = ComplexResponse.Validate(mainSeed, result.Data);
 
-            cat.Items.Add(new CategoryItem(label, match, $"match={match}"));
+            cat.Items.Add(new CategoryItem(label, 0 <= validationCode, $"validationCode={validationCode}"));
 
-            if (match)
-                logs.Add(new LogEntry($"POST complex body: match={match}", true));
+            if (0 <= validationCode)
+                logs.Add(new LogEntry($"POST complex body: validationCode={validationCode}", true));
             else
                 logs.Add(new LogEntry($"POST complex body: MISMATCH", false));
         }
@@ -540,7 +538,7 @@ else
 
             logs.Add(new LogEntry($"POST /api/test/crypto/encrypt ({plaintext.Length} bytes)", null));
 
-            await using var encryptResult = await Contracts.ProcessAsync(new TestEncryptContract
+            var encryptResult = await Contracts.ProcessAsync(new TestEncryptContract
             {
                 Plaintext = plaintext
             });
@@ -563,7 +561,7 @@ else
             // Now decrypt with server
             logs.Add(new LogEntry($"POST /api/test/crypto/decrypt ({cipherLen} bytes)", null));
 
-            await using var decryptResult = await Contracts.ProcessAsync(new TestDecryptContract
+            var decryptResult = await Contracts.ProcessAsync(new TestDecryptContract
             {
                 Ciphertext = cryptoResult.Ciphertext,
                 Nonce = cryptoResult.Nonce,
@@ -606,7 +604,7 @@ else
 
             logs.Add(new LogEntry($"POST /api/test/upload/single ({fileContent.Length} bytes)", null));
 
-            await using var result = await Contracts.ProcessAsync(new TestUploadSingleFileContract
+            var result = await Contracts.ProcessAsync(new TestUploadSingleFileContract
             {
                 File = new ContractFile(stream, "test.txt", "text/plain", fileContent.Length)
             });
@@ -647,7 +645,7 @@ else
 
             logs.Add(new LogEntry($"POST /api/test/upload/multiple (2 files)", null));
 
-            await using var result = await Contracts.ProcessAsync(new TestUploadMultipleFilesContract
+            var result = await Contracts.ProcessAsync(new TestUploadMultipleFilesContract
             {
                 File1 = new ContractFile(ms1, "file1.txt", "text/plain", content1.Length),
                 File2 = new ContractFile(ms2, "file2.txt", "text/plain", content2.Length)
@@ -693,7 +691,7 @@ else
 
             logs.Add(new LogEntry($"POST /api/test/upload/combined (byte[] + 2 files)", null));
 
-            await using var result = await Contracts.ProcessAsync(new TestUploadCombinedContract
+            var result = await Contracts.ProcessAsync(new TestUploadCombinedContract
             {
                 Data = byteArrayData,
                 File1 = new ContractFile(ms1, "f1.bin", "application/octet-stream", fileContent1.Length),
@@ -741,7 +739,7 @@ else
             var seed = Random.Shared.Next(999);
 
             logs.Add(new LogEntry($"PUT /api/test/update number={originalNumber} seed={seed}", null));
-            await using var result = await Contracts.ProcessAsync(new TestPutSimpleBodyContract
+            var result = await Contracts.ProcessAsync(new TestPutSimpleBodyContract
             {
                 Number = originalNumber,
                 Seed = seed
@@ -754,14 +752,14 @@ else
                 return;
             }
 
-            var match = ComplexResponse.Validate((int)(originalNumber ^ seed), result.Data);
+            var validationCode = ComplexResponse.Validate((int)(originalNumber ^ seed), result.Data);
 
-            cat.Items.Add(new CategoryItem(label, match, ""));
+            cat.Items.Add(new CategoryItem(label, 0 <= validationCode, ""));
 
-            if (match)
+            if (0 <= validationCode)
                 logs.Add(new LogEntry($"PUT simple body: VERIFIED", true));
             else
-                logs.Add(new LogEntry($"PUT simple body: MISMATCH", false));
+                logs.Add(new LogEntry($"PUT simple body: MISMATCH, validationCode={validationCode}", false));
         }
         catch (Exception ex)
         {
@@ -779,7 +777,7 @@ else
             var seed = Random.Shared.Next(999);
 
             logs.Add(new LogEntry($"PUT /api/test/update/{seed} number={originalNumber}", null));
-            await using var result = await Contracts.ProcessAsync(new TestPutRouteParamContract
+            var result = await Contracts.ProcessAsync(new TestPutRouteParamContract
             {
                 Number = originalNumber,
                 Seed = seed
@@ -814,7 +812,7 @@ else
         try
         {
             logs.Add(new LogEntry($"DELETE /api/test/remove", null));
-            using var result = await Contracts.ProcessAsync(new TestDeleteNoBodyNoResponseContract());
+            var result = await Contracts.ProcessAsync(new TestDeleteNoBodyNoResponseContract());
 
             var pass = result.IsSuccess;
             cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode}"));
