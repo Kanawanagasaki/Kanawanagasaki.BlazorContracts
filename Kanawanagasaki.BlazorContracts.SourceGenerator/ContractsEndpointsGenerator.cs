@@ -459,21 +459,14 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 """);
             }
 
-            iw.IndentLevel--;
-            if (item.EndpointAttributes.Count > 0)
+            iw.DecreaseAndWriteLine("})");
+            iw.Write(".WithMetadata(new Kanawanagasaki.BlazorContracts.ContractAuthEndpointMarker())");
+            foreach (var attr in item.EndpointAttributes)
             {
-                iw.Write("})");
-                foreach (var attr in item.EndpointAttributes)
-                {
-                    iw.WriteLine();
-                    iw.Write($".WithMetadata({attr.AttributeInstanceSource})");
-                }
-                iw.WriteLine(";");
+                iw.WriteLine();
+                iw.Write($".WithMetadata({attr.AttributeInstanceSource})");
             }
-            else
-            {
-                iw.WriteLine("});");
-            }
+            iw.WriteLine(";");
         }
 
         iw.DecreaseAndWriteLine("}");

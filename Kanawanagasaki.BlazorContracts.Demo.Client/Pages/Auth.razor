@@ -117,33 +117,38 @@
 
 <h2>Login</h2>
 
-<div class="mb-3">
-    <label class="form-label">Username</label>
-    <input @bind="_username" class="form-control" placeholder="admin or user" />
-</div>
-<div class="mb-3">
-    <label class="form-label">Password</label>
-    <input @bind="_password" type="password" class="form-control" placeholder="adminpass or userpass" />
-</div>
-<button class="btn btn-primary" @onclick="DoLogin" disabled="@_loading">
-    @if (_loading)
-    {
-        <text>Logging in...</text>
-    }
-    else
-    {
+<p class="text-muted small">
+    Login and logout go through <code>POST /api/auth/login</code> and <code>POST /api/auth/logout</code>
+    as <strong>real HTTP form submissions</strong> (native browser POST, no JavaScript). This is required
+    because <code>SignInAsync</code> / <code>SignOutAsync</code> mutate HTTP cookies, and the Blazor Server
+    SignalR circuit's response has already started (101 Switching Protocols), so mutating it would throw
+    <em>"Headers are read-only, response has already started"</em>. The endpoint sets the cookie and
+    returns a 302 redirect back to <code>/auth</code>; the browser follows it natively, which tears down
+    the existing circuit and starts a fresh one with the new auth state.
+</p>
 
-        <text>Login</text>
-    }
-</button>
-<button class="btn btn-secondary ms-2" @onclick="DoLogout" disabled="@_loading">Logout</button>
-
-@if (_loginMessage is not null)
+@if (!string.IsNullOrEmpty(_loginError))
 {
-    <div class="alert @(string.IsNullOrEmpty(_loginError) ? "alert-success" : "alert-danger") mt-3">
-        @_loginMessage
-    </div>
+    <div class="alert alert-danger">@_loginError</div>
 }
+
+<form method="post" action="/api/auth/login" class="mb-3">
+    <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input name="username" class="form-control" placeholder="admin or user" required />
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Password</label>
+        <input name="password" type="password" class="form-control" placeholder="adminpass or userpass" required />
+    </div>
+    <input type="hidden" name="returnTo" value="/auth" />
+    <button type="submit" class="btn btn-primary">Login</button>
+</form>
+
+<form method="post" action="/api/auth/logout" class="mb-3">
+    <input type="hidden" name="returnTo" value="/auth" />
+    <button type="submit" class="btn btn-secondary">Logout</button>
+</form>
 
 <h2 class="mt-4">Interactive Contract Calls</h2>
 
@@ -203,22 +208,34 @@
 
 @code {
     [Inject] private IContractsService Contracts { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
 
     private ContractResult<AuthUserInfo>? _prerenderMeResult;
     private ContractResult<AuthUserInfo>? _prerenderAdminResult;
     private ContractResult<AuthUserInfo>? _prerenderPolicyResult;
 
-    private string _username = "";
-    private string _password = "";
     private string _message = "Hello from auth demo";
     private bool _loading;
-    private string? _loginMessage;
     private string? _loginError;
     private string? _resultMessage;
     private string? _resultError;
 
     protected override async Task OnInitializedAsync()
     {
+        // Read ?error=... query param if present (set by /api/auth/login on failed login).
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            var key = eq < 0 ? pair : pair[..eq];
+            var val = eq < 0 ? "" : pair[(eq + 1)..];
+            if (key == "error")
+            {
+                _loginError = Uri.UnescapeDataString(val);
+                break;
+            }
+        }
+
         try
         {
             _prerenderMeResult = await Contracts.ProcessAsync(new AuthMeContract());
@@ -245,49 +262,6 @@
         {
             _prerenderPolicyResult = new ContractResult<AuthUserInfo>(500, "Prerender call failed");
         }
-    }
-
-    private async Task DoLogin()
-    {
-        _loading = true;
-        _loginMessage = null;
-        _loginError = null;
-        try
-        {
-            var result = await Contracts.ProcessAsync(new AuthLoginContract { Username = _username, Password = _password });
-            if (result.IsSuccessWithData)
-            {
-                _loginMessage = $"Logged in as {result.Data.UserName} (Roles: {string.Join(", ", result.Data.Roles)})";
-            }
-            else
-            {
-                _loginError = result.ErrorMessage ?? "Login failed";
-                _loginMessage = _loginError;
-            }
-        }
-        catch (Exception ex)
-        {
-            _loginError = ex.Message;
-            _loginMessage = _loginError;
-        }
-        _loading = false;
-    }
-
-    private async Task DoLogout()
-    {
-        _loading = true;
-        _loginMessage = null;
-        _loginError = null;
-        try
-        {
-            var result = await Contracts.ProcessAsync(new AuthLogoutContract());
-            _loginMessage = result.IsSuccess ? "Logged out." : $"Logout failed: {result.ErrorMessage}";
-        }
-        catch (Exception ex)
-        {
-            _loginMessage = $"Error: {ex.Message}";
-        }
-        _loading = false;
     }
 
     private async Task DoMe()

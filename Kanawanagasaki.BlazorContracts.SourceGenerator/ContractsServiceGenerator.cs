@@ -71,17 +71,92 @@ public class ContractsServiceGenerator : IIncrementalGenerator
 
         iw.WriteLine();
 
-        iw.WriteLine("""
-            public static class ContractsServiceExtension
-            {
-                public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddContracts(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)
+        if (hasAuthAttributes)
+        {
+            iw.WriteLine("""
+                public static class ContractsServiceExtension
                 {
-                    services.AddHttpContextAccessor();
-                    services.AddScoped<Kanawanagasaki.BlazorContracts.IContractsService, ContractsService>();
-                    return services;
+                    public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddContracts(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)
+                    {
+                        services.AddHttpContextAccessor();
+                        services.AddScoped<Kanawanagasaki.BlazorContracts.IContractsService, ContractsService>();
+
+                        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.Replace(
+                            services,
+                            Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
+                                Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler,
+                                Kanawanagasaki.BlazorContracts.ContractAuthorizationMiddlewareResultHandler>());
+
+                        return services;
+                    }
                 }
-            }
-            """);
+                """);
+        }
+        else
+        {
+            iw.WriteLine("""
+                public static class ContractsServiceExtension
+                {
+                    public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddContracts(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)
+                    {
+                        services.AddHttpContextAccessor();
+                        services.AddScoped<Kanawanagasaki.BlazorContracts.IContractsService, ContractsService>();
+                        return services;
+                    }
+                }
+                """);
+        }
+
+        iw.WriteLine();
+
+        if (hasAuthAttributes)
+        {
+            iw.WriteLine("""
+                public sealed class ContractAuthorizationMiddlewareResultHandler : Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler
+                {
+                    private readonly Microsoft.AspNetCore.Authorization.Policy.AuthorizationMiddlewareResultHandler _inner = new();
+
+                    public async System.Threading.Tasks.Task HandleAsync(
+                        Microsoft.AspNetCore.Http.RequestDelegate next,
+                        Microsoft.AspNetCore.Http.HttpContext context,
+                        Microsoft.AspNetCore.Authorization.AuthorizationPolicy policy,
+                        Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult authorizeResult)
+                    {
+                        var isContractEndpoint =
+                            context.GetEndpoint()?.Metadata.GetMetadata<Kanawanagasaki.BlazorContracts.ContractAuthEndpointMarker>() is not null;
+
+                        if (!isContractEndpoint)
+                        {
+                            await _inner.HandleAsync(next, context, policy, authorizeResult);
+                            return;
+                        }
+
+                        if (authorizeResult.Challenged)
+                        {
+                            await WriteContractResultAsync(context, Microsoft.AspNetCore.Http.StatusCodes.Status401Unauthorized, "Unauthorized");
+                            return;
+                        }
+
+                        if (authorizeResult.Forbidden)
+                        {
+                            await WriteContractResultAsync(context, Microsoft.AspNetCore.Http.StatusCodes.Status403Forbidden, "Forbidden");
+                            return;
+                        }
+
+                        await next(context);
+                    }
+
+                    private static async System.Threading.Tasks.Task WriteContractResultAsync(
+                        Microsoft.AspNetCore.Http.HttpContext context, int statusCode, string errorMessage)
+                    {
+                        context.Response.StatusCode = statusCode;
+                        context.Response.ContentType = "application/json; charset=utf-8";
+                        var result = new Kanawanagasaki.BlazorContracts.ContractResult(statusCode, errorMessage);
+                        await System.Text.Json.JsonSerializer.SerializeAsync(context.Response.Body, result);
+                    }
+                }
+                """);
+        }
 
         iw.WriteLine();
 
