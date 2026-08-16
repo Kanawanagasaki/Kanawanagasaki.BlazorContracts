@@ -1,4 +1,4 @@
-﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
+namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
 using Microsoft.CodeAnalysis;
 
@@ -11,6 +11,8 @@ internal record HandlerMetadata
     internal List<(string TypeName, int Index)> HandlerConstructorInjectedServicesTypes { get; } = [];
     internal List<(string TypeName, string Name, int Index)> HandlerPropertiesInjectedServicesTypes { get; } = [];
     internal List<(string TypeName, int Index)> HandlerInjectedServicesTypes { get; } = [];
+
+    internal List<EndpointAttributeMetadata> EndpointAttributes { get; } = [];
 
     private HandlerMetadata(INamedTypeSymbol handler, ContractMetadata contract)
     {
@@ -78,6 +80,29 @@ internal record HandlerMetadata
             return false;
 
         metadata = new HandlerMetadata(handler, contractMetadata);
+
+        foreach (var attrData in handler.GetAttributes())
+        {
+            if (!EndpointAttributeMetadata.TryCreate(attrData, out var endpointAttr))
+                continue;
+            if (endpointAttr is null)
+                continue;
+            metadata.EndpointAttributes.Add(endpointAttr);
+        }
+
+        var handleAsyncMethod = handler.GetMembers("HandleAsync").OfType<IMethodSymbol>().FirstOrDefault();
+        if (handleAsyncMethod is not null)
+        {
+            foreach (var attrData in handleAsyncMethod.GetAttributes())
+            {
+                if (!EndpointAttributeMetadata.TryCreate(attrData, out var endpointAttr))
+                    continue;
+                if (endpointAttr is null)
+                    continue;
+                metadata.EndpointAttributes.Add(endpointAttr);
+            }
+        }
+
         return true;
     }
 }

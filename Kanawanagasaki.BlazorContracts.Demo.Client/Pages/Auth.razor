@@ -1,0 +1,356 @@
+@page "/auth"
+@rendermode InteractiveAuto
+
+<PageTitle>Auth Demo</PageTitle>
+
+<h1>Authentication &amp; Authorization Demo</h1>
+
+<p>
+    This page demonstrates endpoint-level attributes propagated from handlers
+    to the generated minimal API endpoints and the <code>ContractsService</code>.
+</p>
+
+<h2>Prerender Auth Check</h2>
+
+<p>
+    During <strong>Blazor SSR prerendering</strong>, <code>OnInitializedAsync</code> runs on the server.
+    When a secured contract is invoked during prerender, the <code>ContractsService</code> manually
+    evaluates <code>[Authorize]</code> attributes and returns <code>401 Unauthorized</code> or
+    <code>403 Forbidden</code> <code>ContractResult</code> &mdash; without hitting the HTTP endpoint
+    at all. This is essential because prerendering requests target the HTML page, not the contract
+    endpoint directly.
+</p>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">GET /me <code>[Authorize]</code></div>
+            <div class="card-body">
+                @if (_prerenderMeResult is not null)
+                {
+                    <span class="badge @(_prerenderMeResult.IsSuccess ? "bg-success" : "bg-danger")">
+                        @(_prerenderMeResult.StatusCode)
+                    </span>
+                    <span class="ms-2">
+                        @if (_prerenderMeResult.IsSuccessWithData && _prerenderMeResult.Data is not null)
+                        {
+                            <text>@_prerenderMeResult.Data.UserName</text>
+                        }
+                        else
+                        {
+                            <text>@_prerenderMeResult.ErrorMessage</text>
+                        }
+                    </span>
+                }
+                else
+                {
+                    <span class="text-muted">Checking...</span>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">GET /admin-only <code>[Authorize(Roles="Admin")]</code></div>
+            <div class="card-body">
+                @if (_prerenderAdminResult is not null)
+                {
+                    <span class="badge @(_prerenderAdminResult.IsSuccess ? "bg-success" : "bg-danger")">
+                        @(_prerenderAdminResult.StatusCode)
+                    </span>
+                    <span class="ms-2">
+                        @if (_prerenderAdminResult.IsSuccessWithData && _prerenderAdminResult.Data is not null)
+                        {
+                            <text>@_prerenderAdminResult.Data.UserName</text>
+                        }
+                        else
+                        {
+                            <text>@_prerenderAdminResult.ErrorMessage</text>
+                        }
+                    </span>
+                }
+                else
+                {
+                    <span class="text-muted">Checking...</span>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">GET /policy <code>[Authorize(Policy="MySuperPolicy")]</code></div>
+            <div class="card-body">
+                @if (_prerenderPolicyResult is not null)
+                {
+                    <span class="badge @(_prerenderPolicyResult.IsSuccess ? "bg-success" : "bg-danger")">
+                        @(_prerenderPolicyResult.StatusCode)
+                    </span>
+                    <span class="ms-2">
+                        @if (_prerenderPolicyResult.IsSuccessWithData && _prerenderPolicyResult.Data is not null)
+                        {
+                            <text>@_prerenderPolicyResult.Data.UserName</text>
+                        }
+                        else
+                        {
+                            <text>@_prerenderPolicyResult.ErrorMessage</text>
+                        }
+                    </span>
+                }
+                else
+                {
+                    <span class="text-muted">Checking...</span>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<p class="text-muted small">
+    These results were obtained during <strong>server-side prerendering</strong> via
+    <code>OnInitializedAsync</code> &rarr; <code>ContractsService.ProcessAsync()</code>,
+    which manually evaluates <code>[Authorize]</code> attributes against
+    <code>IHttpContextAccessor.HttpContext.User</code> and
+    <code>IAuthorizationService</code>. No HTTP endpoint was hit.
+</p>
+
+<hr />
+
+<h2>Login</h2>
+
+<div class="mb-3">
+    <label class="form-label">Username</label>
+    <input @bind="_username" class="form-control" placeholder="admin or user" />
+</div>
+<div class="mb-3">
+    <label class="form-label">Password</label>
+    <input @bind="_password" type="password" class="form-control" placeholder="adminpass or userpass" />
+</div>
+<button class="btn btn-primary" @onclick="DoLogin" disabled="@_loading">
+    @if (_loading)
+    {
+        <text>Logging in...</text>
+    }
+    else
+    {
+
+        <text>Login</text>
+    }
+</button>
+<button class="btn btn-secondary ms-2" @onclick="DoLogout" disabled="@_loading">Logout</button>
+
+@if (_loginMessage is not null)
+{
+    <div class="alert @(string.IsNullOrEmpty(_loginError) ? "alert-success" : "alert-danger") mt-3">
+        @_loginMessage
+    </div>
+}
+
+<h2 class="mt-4">Interactive Contract Calls</h2>
+
+<p>
+    These buttons invoke contracts from the <strong>interactive circuit</strong> (after prerendering).
+    The same <code>[Authorize]</code> attributes are evaluated, but now the request may also go through
+    the actual HTTP endpoint (minimal API) where <code>.WithMetadata(new AuthorizeAttribute())</code>
+    has been applied by the source generator.
+</p>
+
+<div class="row g-2 mb-3">
+    <div class="col-auto">
+        <button class="btn btn-outline-primary" @onclick="DoMe" disabled="@_loading">
+            GET /me [Authorize]
+        </button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-warning" @onclick="DoAdminOnly" disabled="@_loading">
+            GET /admin-only [Authorize(Roles="Admin")]
+        </button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-info" @onclick="DoPolicy" disabled="@_loading">
+            GET /policy [Authorize(Policy="MySuperPolicy")]
+        </button>
+    </div>
+</div>
+
+<h3>POST / PUT / DELETE with Auth</h3>
+<div class="mb-3">
+    <input @bind="_message" class="form-control" placeholder="Message to echo" />
+</div>
+<div class="row g-2 mb-3">
+    <div class="col-auto">
+        <button class="btn btn-outline-success" @onclick="DoSecuredPost" disabled="@_loading">
+            POST [Authorize]
+        </button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-warning" @onclick="DoSecuredPut" disabled="@_loading">
+            PUT [Authorize(Roles="Admin")]
+        </button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-danger" @onclick="DoSecuredDelete" disabled="@_loading">
+            DELETE [Authorize(Roles="Admin")]
+        </button>
+    </div>
+</div>
+
+@if (_resultMessage is not null)
+{
+    <div class="alert @(string.IsNullOrEmpty(_resultError) ? "alert-info" : "alert-warning")">
+        @_resultMessage
+    </div>
+}
+
+@code {
+    [Inject] private IContractsService Contracts { get; set; } = default!;
+
+    private ContractResult<AuthUserInfo>? _prerenderMeResult;
+    private ContractResult<AuthUserInfo>? _prerenderAdminResult;
+    private ContractResult<AuthUserInfo>? _prerenderPolicyResult;
+
+    private string _username = "";
+    private string _password = "";
+    private string _message = "Hello from auth demo";
+    private bool _loading;
+    private string? _loginMessage;
+    private string? _loginError;
+    private string? _resultMessage;
+    private string? _resultError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _prerenderMeResult = await Contracts.ProcessAsync(new AuthMeContract());
+        }
+        catch
+        {
+            _prerenderMeResult = new ContractResult<AuthUserInfo>(500, "Prerender call failed");
+        }
+
+        try
+        {
+            _prerenderAdminResult = await Contracts.ProcessAsync(new AuthAdminOnlyContract());
+        }
+        catch
+        {
+            _prerenderAdminResult = new ContractResult<AuthUserInfo>(500, "Prerender call failed");
+        }
+
+        try
+        {
+            _prerenderPolicyResult = await Contracts.ProcessAsync(new AuthPolicyContract());
+        }
+        catch
+        {
+            _prerenderPolicyResult = new ContractResult<AuthUserInfo>(500, "Prerender call failed");
+        }
+    }
+
+    private async Task DoLogin()
+    {
+        _loading = true;
+        _loginMessage = null;
+        _loginError = null;
+        try
+        {
+            var result = await Contracts.ProcessAsync(new AuthLoginContract { Username = _username, Password = _password });
+            if (result.IsSuccessWithData)
+            {
+                _loginMessage = $"Logged in as {result.Data.UserName} (Roles: {string.Join(", ", result.Data.Roles)})";
+            }
+            else
+            {
+                _loginError = result.ErrorMessage ?? "Login failed";
+                _loginMessage = _loginError;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loginError = ex.Message;
+            _loginMessage = _loginError;
+        }
+        _loading = false;
+    }
+
+    private async Task DoLogout()
+    {
+        _loading = true;
+        _loginMessage = null;
+        _loginError = null;
+        try
+        {
+            var result = await Contracts.ProcessAsync(new AuthLogoutContract());
+            _loginMessage = result.IsSuccess ? "Logged out." : $"Logout failed: {result.ErrorMessage}";
+        }
+        catch (Exception ex)
+        {
+            _loginMessage = $"Error: {ex.Message}";
+        }
+        _loading = false;
+    }
+
+    private async Task DoMe()
+    {
+        _loading = true; ClearResult();
+        var r = await Contracts.ProcessAsync(new AuthMeContract());
+        ShowResult(r);
+        _loading = false;
+    }
+
+    private async Task DoAdminOnly()
+    {
+        _loading = true; ClearResult();
+        var r = await Contracts.ProcessAsync(new AuthAdminOnlyContract());
+        ShowResult(r);
+        _loading = false;
+    }
+
+    private async Task DoPolicy()
+    {
+        _loading = true; ClearResult();
+        var r = await Contracts.ProcessAsync(new AuthPolicyContract());
+        ShowResult(r);
+        _loading = false;
+    }
+
+    private async Task DoSecuredPost()
+    {
+        _loading = true; ClearResult();
+        var r = await Contracts.ProcessAsync(new AuthSecuredPostContract { Message = _message });
+        ShowResult(r);
+        _loading = false;
+    }
+
+    private async Task DoSecuredPut()
+    {
+        _loading = true; ClearResult();
+        var r = await Contracts.ProcessAsync(new AuthSecuredPutContract { Id = 1, Message = _message });
+        ShowResult(r);
+        _loading = false;
+    }
+
+    private async Task DoSecuredDelete()
+    {
+        _loading = true; ClearResult();
+        var r = await Contracts.ProcessAsync(new AuthSecuredDeleteContract { Id = 1 });
+        if (r.IsSuccess) _resultMessage = "DELETE succeeded (200)";
+        else { _resultError = r.ErrorMessage ?? $"Status {r.StatusCode}"; _resultMessage = _resultError; }
+        _loading = false;
+    }
+
+    private void ClearResult() { _resultMessage = null; _resultError = null; }
+
+    private void ShowResult<T>(ContractResult<T> r)
+    {
+        if (r.IsSuccessWithData && r.Data is AuthUserInfo aui)
+            _resultMessage = aui.UserName + "; Claims: " + string.Join(", ", aui.Claims) + "; Roles: " + string.Join(", ", aui.Roles);
+        else if (r.IsSuccess)
+            _resultMessage = $"Success {r.StatusCode}";
+        else
+        {
+            _resultError = r.ErrorMessage ?? $"Status {r.StatusCode}";
+            _resultMessage = _resultError;
+        }
+    }
+}

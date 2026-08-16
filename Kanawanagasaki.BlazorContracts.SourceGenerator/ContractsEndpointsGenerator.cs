@@ -459,7 +459,21 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 """);
             }
 
-            iw.DecreaseAndWriteLine("});");
+            iw.IndentLevel--;
+            if (item.EndpointAttributes.Count > 0)
+            {
+                iw.Write("})");
+                foreach (var attr in item.EndpointAttributes)
+                {
+                    iw.WriteLine();
+                    iw.Write($".WithMetadata({attr.AttributeInstanceSource})");
+                }
+                iw.WriteLine(";");
+            }
+            else
+            {
+                iw.WriteLine("});");
+            }
         }
 
         iw.DecreaseAndWriteLine("}");

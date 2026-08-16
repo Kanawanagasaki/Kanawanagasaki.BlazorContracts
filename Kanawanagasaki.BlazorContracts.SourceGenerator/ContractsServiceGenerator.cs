@@ -1,4 +1,4 @@
-﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
+namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -51,8 +51,6 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             return;
 
         var injectedServices = new Dictionary<string, string>();
-        var withResponseContracts = new List<HandlerMetadata>();
-        var noResponseContracts = new List<HandlerMetadata>();
 
         foreach (var meta in list)
         {
@@ -61,12 +59,10 @@ public class ContractsServiceGenerator : IIncrementalGenerator
                 if (!injectedServices.ContainsKey(injectedServiceType))
                     injectedServices[injectedServiceType] = $"_injected_service_" + (injectedServices.Count + 1);
             }
-
-            if (meta.Contract.IsReturning)
-                withResponseContracts.Add(meta);
-            else
-                noResponseContracts.Add(meta);
         }
+
+        var hasAuthAttributes = list.Any(m => m.EndpointAttributes.Any(a => a.IsAuthAttribute));
+        var hasPolicyAuth = list.Any(m => m.EndpointAttributes.Any(a => a.IsAuthorize && a.Policy is not null));
 
         using var sw = new StringWriter();
         using var iw = new IndentedTextWriter(sw);
@@ -80,6 +76,7 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             {
                 public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddContracts(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)
                 {
+                    services.AddHttpContextAccessor();
                     services.AddScoped<Kanawanagasaki.BlazorContracts.IContractsService, ContractsService>();
                     return services;
                 }
@@ -95,15 +92,38 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         foreach (var kv in injectedServices)
             iw.WriteLine($"private readonly {kv.Key} {kv.Value};");
 
+        if (hasAuthAttributes)
+        {
+            iw.WriteLine("private readonly Microsoft.AspNetCore.Http.IHttpContextAccessor _httpContextAccessor;");
+            if (hasPolicyAuth)
+                iw.WriteLine("private readonly Microsoft.AspNetCore.Authorization.IAuthorizationService _authorizationService;");
+        }
+
         iw.WriteLine();
 
         iw.WriteLineAndIncrease("public ContractsService(");
-        iw.WriteLine(string.Join(",\n", injectedServices.Select(kv => $"{kv.Key} {kv.Value}").Concat(["Microsoft.Extensions.Logging.ILogger<ContractsService> logger"])));
+        var constructorParams = new List<string>();
+        foreach (var kv in injectedServices)
+            constructorParams.Add($"{kv.Key} {kv.Value}");
+        if (hasAuthAttributes)
+        {
+            constructorParams.Add("Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor");
+            if (hasPolicyAuth)
+                constructorParams.Add("Microsoft.AspNetCore.Authorization.IAuthorizationService authorizationService");
+        }
+        constructorParams.Add("Microsoft.Extensions.Logging.ILogger<ContractsService> logger");
+        iw.WriteLine(string.Join(",\n", constructorParams));
         iw.DecreaseAndWriteLine(")");
         iw.WriteLineAndIncrease("{");
         iw.WriteLine("this._logger = logger;");
         foreach (var kv in injectedServices)
             iw.WriteLine($"this.{kv.Value} = {kv.Value};");
+        if (hasAuthAttributes)
+        {
+            iw.WriteLine("this._httpContextAccessor = httpContextAccessor;");
+            if (hasPolicyAuth)
+                iw.WriteLine("this._authorizationService = authorizationService;");
+        }
         iw.DecreaseAndWriteLine("}");
 
         foreach (var metadata in list)
@@ -121,6 +141,8 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             else
                 iw.WriteLine($"public async Task<{Constants.ContractResultFullName}> ProcessAsync({metadata.Contract.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
             iw.WriteLineAndIncrease("{");
+
+            GenerateAuthorizationChecks(iw, metadata, returnTypeGenericPart);
 
             iw.WriteLine("try");
             iw.WriteLineAndIncrease("{");
@@ -180,5 +202,83 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         iw.DecreaseAndWriteLine("}");
 
         context.AddSource("ContractsService.g.cs", sw.ToString());
+    }
+
+    private void GenerateAuthorizationChecks(IndentedTextWriter iw, HandlerMetadata metadata, string returnTypeGenericPart)
+    {
+        var authAttributes = metadata.EndpointAttributes.Where(a => a.IsAuthAttribute).ToList();
+        if (authAttributes.Count == 0)
+            return;
+
+        if (authAttributes.Any(a => a.IsAllowAnonymous))
+            return;
+
+        var authorizeAttributes = authAttributes.Where(a => a.IsAuthorize).ToList();
+        if (authorizeAttributes.Count == 0)
+            return;
+
+        iw.WriteLine("var __user = _httpContextAccessor.HttpContext?.User;");
+        iw.WriteLine("if (__user is null || __user.Identity is null || !__user.Identity.IsAuthenticated)");
+        iw.WriteLineAndIncrease("{");
+        if (metadata.Contract.IsDisposableReturnType)
+            iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.DisposableContractResult{returnTypeGenericPart}(401, \"Unauthorized\");");
+        else
+            iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.ContractResult{returnTypeGenericPart}(401, \"Unauthorized\");");
+        iw.DecreaseAndWriteLine("}");
+
+        foreach (var authAttr in authorizeAttributes)
+        {
+            if (authAttr.Roles is not null)
+            {
+                var roles = authAttr.Roles.Split(',').Select(r => r.Trim()).Where(r => r.Length > 0).ToArray();
+                if (0 < roles.Length)
+                {
+                    if (roles.Length == 1)
+                    {
+                        iw.WriteLine($"if (!__user.IsInRole(\"{roles[0].Replace("\"", "\\\"")}\"))");
+                    }
+                    else
+                    {
+                        iw.Write("if (!(");
+                        var roleChecks = roles.Select(r => $"__user.IsInRole(\"{r.Replace("\"", "\\\"")}\")");
+                        iw.Write(string.Join(" || ", roleChecks));
+                        iw.WriteLine("))");
+                    }
+                    iw.WriteLineAndIncrease("{");
+                    if (metadata.Contract.IsDisposableReturnType)
+                        iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.DisposableContractResult{returnTypeGenericPart}(403, \"Forbidden\");");
+                    else
+                        iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.ContractResult{returnTypeGenericPart}(403, \"Forbidden\");");
+                    iw.DecreaseAndWriteLine("}");
+                }
+            }
+
+            if (authAttr.Policy is not null)
+            {
+                iw.WriteLine($"var __authResult = await Microsoft.AspNetCore.Authorization.AuthorizationServiceExtensions.AuthorizeAsync(_authorizationService, __user, \"{authAttr.Policy.Replace("\"", "\\\"")}\");");
+                iw.WriteLine("if (!__authResult.Succeeded)");
+                iw.WriteLineAndIncrease("{");
+                if (metadata.Contract.IsDisposableReturnType)
+                    iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.DisposableContractResult{returnTypeGenericPart}(403, \"Forbidden\");");
+                else
+                    iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.ContractResult{returnTypeGenericPart}(403, \"Forbidden\");");
+                iw.DecreaseAndWriteLine("}");
+            }
+
+            if (authAttr.AuthenticationSchemes is not null)
+            {
+                var schemes = authAttr.AuthenticationSchemes.Split(',').Select(s => s.Trim()).Where(s => 0 < s.Length).ToArray();
+                if (schemes.Length > 0)
+                {
+                    iw.WriteLine($"if (!__user.Identities.Any(__id => __id.AuthenticationType is not null && new[] {{ {string.Join(", ", schemes.Select(s => $"\"{s.Replace("\"", "\\\"")}\""))} }}.Contains(__id.AuthenticationType)))");
+                    iw.WriteLineAndIncrease("{");
+                    if (metadata.Contract.IsDisposableReturnType)
+                        iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.DisposableContractResult{returnTypeGenericPart}(401, \"Unauthorized\");");
+                    else
+                        iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.ContractResult{returnTypeGenericPart}(401, \"Unauthorized\");");
+                    iw.DecreaseAndWriteLine("}");
+                }
+            }
+        }
     }
 }

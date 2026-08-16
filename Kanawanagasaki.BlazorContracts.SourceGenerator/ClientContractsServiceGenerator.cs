@@ -379,15 +379,20 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             {
                 iw.WriteLine($$"""
                     using var response = await _http.SendAsync(request, ct);
-
+                    var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
+                    
                     if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
                     {
                         return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode);
                     }
-                    else
+                    else if (contentType == "application/json")
                     {
                         var contentStr = await response.Content.ReadAsStringAsync();
                         return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(contentStr, _jsonOptions);
+                    }
+                    else
+                    {
+                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Unexpected content type " + contentType);
                     }
                     """);
             }
