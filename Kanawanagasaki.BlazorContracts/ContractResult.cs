@@ -2,15 +2,18 @@
 
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using MessagePack;
 
+[MessagePackObject]
 public class ContractResult
 {
-    [JsonIgnore]
+    [JsonIgnore, IgnoreMember]
     public bool IsSuccess => StatusCode / 100 == 2;
 
-    [JsonPropertyName("statusCode")]
+    [JsonPropertyName("statusCode"), Key(1)]
     public int StatusCode { get; set; }
-    [JsonPropertyName("errorMessage")]
+
+    [JsonPropertyName("errorMessage"), Key(2)]
     public string? ErrorMessage { get; set; }
 
     public ContractResult() { }
@@ -27,12 +30,13 @@ public class ContractResult
     }
 }
 
+[MessagePackObject]
 public class ContractResult<TData> : ContractResult
 {
-    [JsonPropertyName("data")]
+    [JsonPropertyName("data"), Key(3)]
     public TData? Data { get; set; }
 
-    [JsonIgnore, MemberNotNullWhen(true, nameof(Data))]
+    [JsonIgnore, MemberNotNullWhen(true, nameof(Data)), IgnoreMember]
     public bool IsSuccessWithData => IsSuccess && Data is not null;
 
     public ContractResult() : base() { }
@@ -53,9 +57,10 @@ public class ContractResult<TData> : ContractResult
         => new ContractResult<TData>(data);
 }
 
+[MessagePackObject]
 public class DisposableContractResult<TData> : ContractResult<TData>, IDisposable, IAsyncDisposable
 {
-    [JsonIgnore]
+    [JsonIgnore, IgnoreMember]
     public HttpResponseMessage? HttpResponse { get; set; }
 
     public DisposableContractResult() : base() { }

@@ -9,4 +9,8 @@ public static class Constants
     public const string DisposableContractResultFullName = "Kanawanagasaki.BlazorContracts.DisposableContractResult";
 
     public const string IAsyncDisposableFullName = "System.IAsyncDisposable";
+
+    public const string MessagePackObjectAttributeFullName = "MessagePack.MessagePackObjectAttribute";
+    public const string BlazorContractsMessagePackFullName = "Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack";
+    public const string MessagePackMediaType = "application/x-msgpack";
 }

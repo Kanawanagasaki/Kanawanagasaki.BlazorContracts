@@ -18,6 +18,14 @@ public class ContractMetadata
     public bool IsDisposableReturnType { get; }
     public string? ReturnFullyQualifiedName { get; }
 
+    public bool IsMessagePack { get; }
+
+    public bool IsReturnMessagePack { get; }
+
+    public bool HasByteArrayProperty { get; }
+    public bool HasContractFileProperty { get; }
+    public bool HasBinaryProperty { get; }
+
     private ContractMetadata(INamedTypeSymbol type, string endpoint, string verbStr)
     {
         Name = type.Name;
@@ -27,6 +35,10 @@ public class ContractMetadata
 
         foreach (var prop in GetAllProperties(type))
             _properties[prop.Name] = new PropertyMetadata(prop);
+
+        IsMessagePack = type.GetAttributes().Any(x
+            => x.AttributeClass is not null
+            && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.MessagePackObjectAttributeFullName);
 
         foreach (var iface in type.AllInterfaces)
         {
@@ -42,6 +54,12 @@ public class ContractMetadata
                 IsByteArrayReturnType = true;
             else if (iface.TypeArguments[0].ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(Stream).FullName)
                 IsStreamReturnType = true;
+            else if (iface.TypeArguments[0] is INamedTypeSymbol returnNamedType)
+            {
+                IsReturnMessagePack = returnNamedType.GetAttributes().Any(x
+                    => x.AttributeClass is not null
+                    && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.MessagePackObjectAttributeFullName);
+            }
 
             if (iface.TypeArguments[0].AllInterfaces.Any(x
                 => x.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(IDisposable).FullName
@@ -50,6 +68,15 @@ public class ContractMetadata
                 IsDisposableReturnType = true;
             }
         }
+
+        foreach (var prop in _properties.Values)
+        {
+            if (prop.IsByteArray)
+                HasByteArrayProperty = true;
+            if (prop.IsContractFile)
+                HasContractFileProperty = true;
+        }
+        HasBinaryProperty = HasByteArrayProperty || HasContractFileProperty;
     }
 
     public static bool TryCreate(INamedTypeSymbol type, out ContractMetadata? metadata)

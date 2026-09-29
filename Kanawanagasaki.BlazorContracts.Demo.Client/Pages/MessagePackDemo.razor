@@ -1,0 +1,395 @@
+@page "/msgpack"
+@rendermode InteractiveAuto
+@inject IContractsService Contracts
+@inject ILogger<MessagePackDemo> Logger
+
+<PageTitle>MessagePack &middot; Blazor Contracts</PageTitle>
+
+<h1>MessagePack serialization</h1>
+
+<p>
+    This page demonstrates the new MessagePack support in <strong>Blazor Contracts</strong>.
+    When a contract or response object is annotated with <code>[MessagePackObject]</code>,
+    the generated endpoints and client service serialize that side of the wire using MessagePack
+    instead of JSON. MessagePack-CSharp's binary format is both smaller and faster to
+    serialize than System.Text.Json, and — crucially — it encodes <code>byte[]</code> natively
+    as a <em>bin</em> type, which avoids the base64 inflation JSON would impose and lets us
+    skip the <code>multipart/form-data</code> envelope for inline <code>byte[]</code> payloads.
+</p>
+
+<div class="alert alert-info" role="alert">
+    <strong>Render mode:</strong> @RendererInfo.Name
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">1. Both sides MessagePack (<code>byte[]</code> inline, no multipart)</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Contract = <code>MessagePackWeatherContract</code> &rarr; <code>POST /api/msgpack/weather</code>.
+                    Both contract and response are MessagePack-marked. The request body is a single
+                    MessagePack blob (including the <code>byte[] Payload</code>), the response is a
+                    single MessagePack blob. No multipart, no base64.
+                </p>
+                <div class="mb-2">
+                    <label class="form-label small">Seed</label>
+                    <input type="number" class="form-control" style="width: 140px;" @bind="weatherSeed" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Days</label>
+                    <input type="number" class="form-control" style="width: 140px;" @bind="weatherDays" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">Payload size (bytes, random)</label>
+                    <input type="number" class="form-control" style="width: 160px;" @bind="weatherPayloadSize" />
+                </div>
+                <button class="btn btn-primary" @onclick="RunWeatherAsync">Send (MessagePack both sides)</button>
+                @if (weatherResult is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong><br />
+                        Date: @weatherResult.Date<br />
+                        Temp: @weatherResult.TemperatureC &deg;C / @weatherResult.TemperatureF &deg;F<br />
+                        Summary: @weatherResult.Summary<br />
+                        Payload echoed: @(weatherResult.Payload?.Length ?? 0) bytes<br />
+                        Days: @(weatherResult.Days?.Length ?? 0)
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">2. MessagePack contract, JSON response</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Contract = <code>MessagePackContractJsonResponseContract</code> &rarr;
+                    <code>POST /api/msgpack/mixed-json-response</code>. The request body is MessagePack
+                    (because the contract is MessagePack-marked); the response body is JSON (because
+                    <code>SimpleTestResponse</code> has no <code>[MessagePackObject]</code>).
+                </p>
+                <div class="mb-2">
+                    <label class="form-label small">Input</label>
+                    <input type="text" class="form-control" @bind="mixedInput" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">Echo #</label>
+                    <input type="number" class="form-control" style="width: 140px;" @bind="mixedEcho" />
+                </div>
+                <button class="btn btn-primary" @onclick="RunMixedContractJsonResponseAsync">Send (MessagePack contract, JSON response)</button>
+                @if (mixedResponse is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong> @mixedResponse.Message
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">3. JSON contract, MessagePack response</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Contract = <code>JsonContractMessagePackResponseContract</code> &rarr;
+                    <code>POST /api/msgpack/json-contract-mp-response</code>. The request body is JSON
+                    (no MessagePackObject on the contract); the response body is MessagePack (because
+                    <code>MessagePackWeatherForecast</code> is MessagePack-marked).
+                </p>
+                <div class="mb-2">
+                    <label class="form-label small">Seed</label>
+                    <input type="number" class="form-control" style="width: 140px;" @bind="jsonContractSeed" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Days</label>
+                    <input type="number" class="form-control" style="width: 140px;" @bind="jsonContractDays" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">Payload size (bytes, random)</label>
+                    <input type="number" class="form-control" style="width: 160px;" @bind="jsonContractPayloadSize" />
+                </div>
+                <button class="btn btn-primary" @onclick="RunJsonContractMessagePackResponseAsync">Send (JSON contract, MessagePack response)</button>
+                @if (jsonContractResponse is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong><br />
+                        Date: @jsonContractResponse.Date<br />
+                        Temp: @jsonContractResponse.TemperatureC &deg;C / @jsonContractResponse.TemperatureF &deg;F<br />
+                        Summary: @jsonContractResponse.Summary<br />
+                        Payload echoed: @(jsonContractResponse.Payload?.Length ?? 0) bytes<br />
+                        Days: @(jsonContractResponse.Days?.Length ?? 0)
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">4. MessagePack both sides + inline <code>byte[]</code> upload</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Contract = <code>MessagePackBytesUploadContract</code> &rarr;
+                    <code>POST /api/msgpack/bytes-upload</code>. Both contract and response are
+                    MessagePack-marked. The contract carries a <code>byte[] Content</code> payload
+                    inline. Since MessagePack encodes byte[] natively, <strong>no multipart</strong>
+                    is used — the entire request is a single MessagePack body, and the response
+                    (which echoes the binary back as <code>MessagePackBinaryResponse.Content</code>)
+                    is also a single MessagePack body.
+                </p>
+                <InputFile OnChange="OnUploadBytes" multiple="false" />
+                @if (bytesUploadResult is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong><br />
+                        Id: @bytesUploadResult.Id<br />
+                        File name: @bytesUploadResult.FileName<br />
+                        Length: @(bytesUploadResult.Content?.Length ?? 0) bytes<br />
+                        Media type: @bytesUploadResult.MediaType<br />
+                        SHA-256: <code>@bytesUploadResult.Sha256</code>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">5. MessagePack both sides + <code>ContractFile</code> stream upload</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Contract = <code>MessagePackStreamUploadContract</code> &rarr;
+                    <code>POST /api/msgpack/stream-upload</code>. Both contract and response are
+                    MessagePack-marked. The contract carries a <code>ContractFile Content</code>
+                    property — a streaming file. Streaming data cannot live inside the MessagePack
+                    body (we never want to fully materialize it on the client), so the request is sent
+                    as <code>multipart/form-data</code>: the MessagePack-encoded contract part (with
+                    <code>Content</code> written as nil by our custom formatter) plus a separate file
+                    part for the stream. The response is a single MessagePack body containing the
+                    binary content directly (no multipart response, because MessagePack encodes
+                    <code>byte[]</code> natively).
+                </p>
+                <InputFile OnChange="OnUploadStream" multiple="false" />
+                @if (streamUploadResult is not null)
+                {
+                    <div class="mt-3 small">
+                        <strong>Result:</strong><br />
+                        Id: @streamUploadResult.Id<br />
+                        File name: @streamUploadResult.FileName<br />
+                        Length: @(streamUploadResult.Content?.Length ?? 0) bytes<br />
+                        Media type: @streamUploadResult.MediaType<br />
+                        SHA-256: <code>@streamUploadResult.Sha256</code>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert alert-success alert-dismissible mt-3" role="alert">
+        @statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible mt-3" role="alert">
+        <strong>Error:</strong> @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@code {
+    private string? statusMessage;
+    private string? errorMessage;
+
+    // Scenario 1: MessagePack both sides, weather forecast
+    private int weatherSeed = 42;
+    private int weatherDays = 5;
+    private int weatherPayloadSize = 1024;
+    private MessagePackWeatherForecast? weatherResult;
+
+    // Scenario 2: MessagePack contract, JSON response
+    private string mixedInput = "hello world";
+    private int mixedEcho = 1;
+    private SimpleTestResponse? mixedResponse;
+
+    // Scenario 3: JSON contract, MessagePack response
+    private int jsonContractSeed = 7;
+    private int jsonContractDays = 3;
+    private int jsonContractPayloadSize = 512;
+    private MessagePackWeatherForecast? jsonContractResponse;
+
+    // Scenario 4: MessagePack both sides, byte[] upload
+    private MessagePackBinaryResponse? bytesUploadResult;
+
+    // Scenario 5: MessagePack both sides, stream upload
+    private MessagePackBinaryResponse? streamUploadResult;
+
+    private async Task RunWeatherAsync()
+    {
+        try
+        {
+            var payload = new byte[weatherPayloadSize];
+            Random.Shared.NextBytes(payload);
+
+            var contract = new MessagePackWeatherContract
+            {
+                Seed = weatherSeed,
+                Days = weatherDays,
+                Payload = payload
+            };
+            var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                weatherResult = result.Data;
+                statusMessage = "Both-side MessagePack round-trip succeeded.";
+                errorMessage = null;
+            }
+            else
+            {
+                weatherResult = null;
+                errorMessage = $"Weather call failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Weather call threw: {ex.Message}";
+        }
+    }
+
+    private async Task RunMixedContractJsonResponseAsync()
+    {
+        try
+        {
+            var contract = new MessagePackContractJsonResponseContract
+            {
+                Input = mixedInput,
+                Echo = mixedEcho
+            };
+            var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                mixedResponse = result.Data;
+                statusMessage = "Mixed (MessagePack contract / JSON response) round-trip succeeded.";
+                errorMessage = null;
+            }
+            else
+            {
+                mixedResponse = null;
+                errorMessage = $"Mixed call failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Mixed call threw: {ex.Message}";
+        }
+    }
+
+    private async Task RunJsonContractMessagePackResponseAsync()
+    {
+        try
+        {
+            var payload = new byte[jsonContractPayloadSize];
+            Random.Shared.NextBytes(payload);
+
+            var contract = new JsonContractMessagePackResponseContract
+            {
+                Seed = jsonContractSeed,
+                Days = jsonContractDays,
+                Payload = payload
+            };
+            var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                jsonContractResponse = result.Data;
+                statusMessage = "Mixed (JSON contract / MessagePack response) round-trip succeeded.";
+                errorMessage = null;
+            }
+            else
+            {
+                jsonContractResponse = null;
+                errorMessage = $"Mixed call failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Mixed call threw: {ex.Message}";
+        }
+    }
+
+    private async Task OnUploadBytes(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file is null)
+                return;
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            var contract = new MessagePackBytesUploadContract
+            {
+                FileName = file.Name,
+                MediaType = file.ContentType,
+                Content = bytes
+            };
+            var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                bytesUploadResult = result.Data;
+                statusMessage = $"Uploaded {file.Name} ({bytes.Length} bytes) via MessagePack byte[] contract as id #{result.Data!.Id}.";
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = $"Upload failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Upload threw: {ex.Message}";
+        }
+    }
+
+    private async Task OnUploadStream(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file is null)
+                return;
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            var contract = new MessagePackStreamUploadContract
+            {
+                FileName = file.Name,
+                MediaType = file.ContentType,
+                Content = new ContractFile(stream, file.Name, file.ContentType, file.Size)
+            };
+            var result = await Contracts.ProcessAsync(contract);
+            if (result.IsSuccessWithData)
+            {
+                streamUploadResult = result.Data;
+                statusMessage = $"Uploaded {file.Name} ({file.Size} bytes) via MessagePack stream contract as id #{result.Data!.Id}.";
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = $"Upload failed (status {result.StatusCode}): {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Upload threw: {ex.Message}";
+        }
+    }
+}

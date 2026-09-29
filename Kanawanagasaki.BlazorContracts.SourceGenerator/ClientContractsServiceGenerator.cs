@@ -1,9 +1,7 @@
 ﻿namespace Kanawanagasaki.BlazorContracts.SourceGenerator;
 
-using Kanawanagasaki.BlazorContracts.SourceGenerator;
 using Microsoft.CodeAnalysis;
 using System.Collections.Immutable;
-using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 
@@ -91,7 +89,9 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
         foreach (var contract in list)
         {
-            if (!contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
+            if (contract.IsMessagePack)
+                continue;
+            if (!contract.HasBinaryProperty)
                 continue;
 
             iw.IndentLevel = 6;
@@ -192,210 +192,14 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             if (metadata.VerbStr == "Post" || metadata.VerbStr == "Put")
             {
-                if (metadata.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
-                {
-                    iw.WriteLine($"""
-                        using var content = new System.Net.Http.MultipartFormDataContent();
-                        var multipartJson = System.Text.Json.JsonSerializer.Serialize(contract, _jsonOptions);
-                        content.Add(new System.Net.Http.StringContent(multipartJson, System.Text.Encoding.UTF8, "application/json"), "{metadata.Name}");
-                        """);
-
-                    foreach (var prop in metadata.Properties.Values)
-                    {
-                        if (prop.IsByteArray)
-                        {
-                            iw.WriteLine($$"""
-                                if (contract.{{prop.Name}} is not null)
-                                {
-                                    var byteArrContent = new System.Net.Http.ByteArrayContent(contract.{{prop.Name}});
-                                    byteArrContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-                                    content.Add(byteArrContent, "{{prop.Name}}", "{{prop.Name}}.bin");
-                                }
-                                """);
-                        }
-                        else if (prop.IsContractFile)
-                        {
-                            iw.WriteLine($$"""
-                                if (contract.{{prop.Name}} is not null)
-                                {
-                                    var streamContent = new System.Net.Http.StreamContent(contract.{{prop.Name}}.Stream);
-                                    streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contract.{{prop.Name}}.MediaType);
-                                    content.Add(streamContent, "{{prop.Name}}", contract.{{prop.Name}}.FileName);
-                                }
-                                """);
-                        }
-                    }
-                }
-                else
-                {
-                    iw.WriteLine($"""
-                        var bodyJson = System.Text.Json.JsonSerializer.Serialize(contract, _jsonOptions);
-                        using var content = new System.Net.Http.StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
-                        """);
-                }
-
-                iw.WriteLine("request.Content = content;");
-                iw.WriteLine();
+                GenerateRequestBody(iw, metadata);
             }
 
             var contractResultGenericPart = string.Empty;
             if (metadata.IsReturning)
                 contractResultGenericPart = $"<{metadata.ReturnFullyQualifiedName}>";
 
-            if (metadata.IsStreamReturnType)
-            {
-                iw.WriteLine($$"""
-                    var response = await _http.SendAsync(request, ct);
-                    var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
-                    if (contentType == "application/json")
-                    {
-                        var contentStr = await response.Content.ReadAsStringAsync();
-                        var result = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>>(contentStr, _jsonOptions);
-                        result.HttpResponse = response;
-                        return result;
-                    }
-                    else
-                    {
-                        var stream = await response.Content.ReadAsStreamAsync();
-                        return new Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>(stream)
-                        {
-                            HttpResponse = response
-                        };
-                    }
-                    """);
-            }
-            else if (metadata.IsByteArrayReturnType)
-            {
-                iw.WriteLine($$"""
-                    using var response = await _http.SendAsync(request, ct);
-                    var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
-                    if (contentType == "application/json")
-                    {
-                        var contentStr = await response.Content.ReadAsStringAsync();
-                        return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>>(contentStr, _jsonOptions);
-                    }
-                    else if (contentType is not null && contentType.StartsWith("multipart/"))
-                    {
-                        var boundaryParam = response.Content.Headers.ContentType?.Parameters?.FirstOrDefault(p => p.Name?.Equals("boundary", System.StringComparison.OrdinalIgnoreCase) == true);
-                        if (boundaryParam is null)
-                            return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>((int)response.StatusCode);
-
-                        var boundary = boundaryParam.Value.Trim().Trim('"');
-                        if (!boundary.StartsWith("--"))
-                            boundary = "--" + boundary;
-                        var boundaryBytes = System.Text.Encoding.UTF8.GetBytes(boundary);
-                        var crlfcrlf = System.Text.Encoding.UTF8.GetBytes("\r\n\r\n");
-
-                        var bytes = await response.Content.ReadAsByteArrayAsync();
-
-                        int boundaryIndexStart = 0;
-                        var boundaryIndices = new System.Collections.Generic.List<int>();
-                        while (true)
-                        {
-                            var boundaryIndex = ByteIndexOf(bytes, boundaryBytes, boundaryIndexStart);
-                            if (boundaryIndex < 0)
-                                break;
-                            boundaryIndices.Add(boundaryIndex);
-                            boundaryIndexStart = boundaryIndex + boundaryBytes.Length;
-                        }
-
-                        Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}> contractResult = null;
-                        byte[] byteArray = null;
-
-                        for (int i = 0; i < boundaryIndices.Count - 1; i++)
-                        {
-                            var startPartIndex = boundaryIndices[i] + boundaryBytes.Length;
-                            var endPartIndex = boundaryIndices[i + 1];
-
-                            if (bytes[endPartIndex - 1] == '\n')
-                                endPartIndex--;
-                            if (bytes[endPartIndex - 1] == '\r')
-                                endPartIndex--;
-
-                            if (endPartIndex <= startPartIndex)
-                                continue;
-
-                            var headerEndIndex = ByteIndexOf(bytes, crlfcrlf, startPartIndex);
-                            if (headerEndIndex < startPartIndex || endPartIndex <= headerEndIndex)
-                                continue;
-
-                            var header = System.Text.Encoding.UTF8.GetString(bytes, startPartIndex, headerEndIndex - startPartIndex);
-                            var headerDict = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
-                            var headerLines = header.Replace("\r", "").Split('\n', System.StringSplitOptions.RemoveEmptyEntries);
-                            foreach (var line in headerLines)
-                            {
-                                var colonIndex = line.IndexOf(':');
-                                if (colonIndex <= 0)
-                                    continue;
-                                var name = line.Substring(0, colonIndex).Trim().ToLowerInvariant();
-                                var value = line.Substring(colonIndex + 1).Trim();
-                                headerDict[name] = value;
-                            }
-
-                            var contentStartIndex = headerEndIndex += crlfcrlf.Length;
-                            string partContentType = null;
-                            if (headerDict.TryGetValue("content-type", out var partFullContentType))
-                                partContentType = partFullContentType.Split(';')[0].Trim().ToLowerInvariant();
-
-                            if (partContentType == "application/json")
-                            {
-                                var responseJson = System.Text.Encoding.UTF8.GetString(bytes, contentStartIndex, endPartIndex - contentStartIndex);
-                                contractResult = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<byte[]>>(responseJson, _jsonOptions);
-                            }
-                            else
-                            {
-                                byteArray = new byte[endPartIndex - contentStartIndex];
-                                System.Buffer.BlockCopy(bytes, contentStartIndex, byteArray, 0, byteArray.Length);
-                            }
-
-                            if (contractResult is not null && byteArray is not null)
-                                break;
-                        }
-
-                        if (contractResult is null && byteArray is null)
-                            return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>((int)response.StatusCode);
-                        else if (byteArray is null)
-                            return contractResult;
-                        else if (contractResult is null)
-                            return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>((int)response.StatusCode) { Data = byteArray };
-                        else
-                        {
-                            contractResult.Data = byteArray;
-                            return contractResult;
-                        }
-                    }
-                    else
-                    {
-                        var bytes = await response.Content.ReadAsByteArrayAsync();
-                        return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>
-                        {
-                            StatusCode = (int)response.StatusCode,
-                            Data = bytes
-                        };
-                    }
-                    """);
-            }
-            else
-            {
-                iw.WriteLine($$"""
-                    using var response = await _http.SendAsync(request, ct);
-                    var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
-                    
-                    if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
-                    {
-                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode);
-                    }
-                    else if (contentType == "application/json")
-                    {
-                        var contentStr = await response.Content.ReadAsStringAsync();
-                        return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(contentStr, _jsonOptions);
-                    }
-                    else
-                    {
-                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Unexpected content type " + contentType);
-                    }
-                    """);
-            }
+            GenerateResponseReading(iw, metadata, contractResultGenericPart);
 
             iw.DecreaseAndWriteLine("}");
             iw.WriteLine("catch (System.OperationCanceledException)");
@@ -443,5 +247,267 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             """);
 
         context.AddSource("ClientContractsService.g.cs", sw.ToString());
+    }
+
+    private static void GenerateRequestBody(IndentedTextWriter iw, ContractMetadata metadata)
+    {
+        var isMessagePack = metadata.IsMessagePack;
+        var hasContractFile = metadata.HasContractFileProperty;
+        var hasJsonBinary = !isMessagePack && metadata.HasBinaryProperty;
+
+        if (isMessagePack && hasContractFile)
+        {
+            iw.WriteLine($$"""
+                using var content = new System.Net.Http.MultipartFormDataContent();
+                var __msgpackBytes = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Serialize(contract);
+                var __contractContent = new System.Net.Http.ByteArrayContent(__msgpackBytes);
+                __contractContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("{{Constants.MessagePackMediaType}}");
+                content.Add(__contractContent, "{{metadata.Name}}", "{{metadata.Name}}.msgpack");
+                """);
+
+            foreach (var prop in metadata.Properties.Values)
+            {
+                if (prop.IsContractFile)
+                {
+                    iw.WriteLine($$"""
+                        if (contract.{{prop.Name}} is not null)
+                        {
+                            var streamContent = new System.Net.Http.StreamContent(contract.{{prop.Name}}.Stream);
+                            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contract.{{prop.Name}}.MediaType);
+                            content.Add(streamContent, "{{prop.Name}}", contract.{{prop.Name}}.FileName);
+                        }
+                        """);
+                }
+            }
+        }
+        else if (isMessagePack)
+        {
+            iw.WriteLine($$"""
+                var __msgpackBytes = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Serialize(contract);
+                using var content = new System.Net.Http.ByteArrayContent(__msgpackBytes);
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("{{Constants.MessagePackMediaType}}");
+                """);
+        }
+        else if (hasJsonBinary)
+        {
+            iw.WriteLine($"""
+                using var content = new System.Net.Http.MultipartFormDataContent();
+                var multipartJson = System.Text.Json.JsonSerializer.Serialize(contract, _jsonOptions);
+                content.Add(new System.Net.Http.StringContent(multipartJson, System.Text.Encoding.UTF8, "application/json"), "{metadata.Name}");
+                """);
+
+            foreach (var prop in metadata.Properties.Values)
+            {
+                if (prop.IsByteArray)
+                {
+                    iw.WriteLine($$"""
+                        if (contract.{{prop.Name}} is not null)
+                        {
+                            var byteArrContent = new System.Net.Http.ByteArrayContent(contract.{{prop.Name}});
+                            byteArrContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                            content.Add(byteArrContent, "{{prop.Name}}", "{{prop.Name}}.bin");
+                        }
+                        """);
+                }
+                else if (prop.IsContractFile)
+                {
+                    iw.WriteLine($$"""
+                        if (contract.{{prop.Name}} is not null)
+                        {
+                            var streamContent = new System.Net.Http.StreamContent(contract.{{prop.Name}}.Stream);
+                            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contract.{{prop.Name}}.MediaType);
+                            content.Add(streamContent, "{{prop.Name}}", contract.{{prop.Name}}.FileName);
+                        }
+                        """);
+                }
+            }
+        }
+        else
+        {
+            iw.WriteLine($"""
+                var bodyJson = System.Text.Json.JsonSerializer.Serialize(contract, _jsonOptions);
+                using var content = new System.Net.Http.StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
+                """);
+        }
+
+        iw.WriteLine("request.Content = content;");
+        iw.WriteLine();
+    }
+
+    private static void GenerateResponseReading(IndentedTextWriter iw, ContractMetadata metadata, string contractResultGenericPart)
+    {
+        if (metadata.IsStreamReturnType)
+        {
+            iw.WriteLine($$"""
+                var response = await _http.SendAsync(request, ct);
+                var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
+                if (contentType == "application/json")
+                {
+                    var contentStr = await response.Content.ReadAsStringAsync();
+                    var result = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>>(contentStr, _jsonOptions);
+                    result.HttpResponse = response;
+                    return result;
+                }
+                else if (contentType == "{{Constants.MessagePackMediaType}}")
+                {
+                    var result = await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.DeserializeAsync<Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>>(await response.Content.ReadAsStreamAsync(), ct);
+                    result.HttpResponse = response;
+                    return result;
+                }
+                else
+                {
+                    var stream = await response.Content.ReadAsStreamAsync();
+                    return new Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>(stream)
+                    {
+                        HttpResponse = response
+                    };
+                }
+                """);
+        }
+        else if (metadata.IsByteArrayReturnType)
+        {
+            iw.WriteLine($$"""
+                using var response = await _http.SendAsync(request, ct);
+                var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
+                if (contentType == "application/json")
+                {
+                    var contentStr = await response.Content.ReadAsStringAsync();
+                    return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>>(contentStr, _jsonOptions);
+                }
+                else if (contentType == "{{Constants.MessagePackMediaType}}")
+                {
+                    var __bytes = await response.Content.ReadAsByteArrayAsync();
+                    return Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>>(__bytes);
+                }
+                else if (contentType is not null && contentType.StartsWith("multipart/"))
+                {
+                    var boundaryParam = response.Content.Headers.ContentType?.Parameters?.FirstOrDefault(p => p.Name?.Equals("boundary", System.StringComparison.OrdinalIgnoreCase) == true);
+                    if (boundaryParam is null)
+                        return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>((int)response.StatusCode);
+
+                    var boundary = boundaryParam.Value.Trim().Trim('"');
+                    if (!boundary.StartsWith("--"))
+                        boundary = "--" + boundary;
+                    var boundaryBytes = System.Text.Encoding.UTF8.GetBytes(boundary);
+                    var crlfcrlf = System.Text.Encoding.UTF8.GetBytes("\r\n\r\n");
+
+                    var bytes = await response.Content.ReadAsByteArrayAsync();
+
+                    int boundaryIndexStart = 0;
+                    var boundaryIndices = new System.Collections.Generic.List<int>();
+                    while (true)
+                    {
+                        var boundaryIndex = ByteIndexOf(bytes, boundaryBytes, boundaryIndexStart);
+                        if (boundaryIndex < 0)
+                            break;
+                        boundaryIndices.Add(boundaryIndex);
+                        boundaryIndexStart = boundaryIndex + boundaryBytes.Length;
+                    }
+
+                    Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}> contractResult = null;
+                    byte[] byteArray = null;
+
+                    for (int i = 0; i < boundaryIndices.Count - 1; i++)
+                    {
+                        var startPartIndex = boundaryIndices[i] + boundaryBytes.Length;
+                        var endPartIndex = boundaryIndices[i + 1];
+
+                        if (bytes[endPartIndex - 1] == '\n')
+                            endPartIndex--;
+                        if (bytes[endPartIndex - 1] == '\r')
+                            endPartIndex--;
+
+                        if (endPartIndex <= startPartIndex)
+                            continue;
+
+                        var headerEndIndex = ByteIndexOf(bytes, crlfcrlf, startPartIndex);
+                        if (headerEndIndex < startPartIndex || endPartIndex <= headerEndIndex)
+                            continue;
+
+                        var header = System.Text.Encoding.UTF8.GetString(bytes, startPartIndex, headerEndIndex - startPartIndex);
+                        var headerDict = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+                        var headerLines = header.Replace("\r", "").Split('\n', System.StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var line in headerLines)
+                        {
+                            var colonIndex = line.IndexOf(':');
+                            if (colonIndex <= 0)
+                                continue;
+                            var name = line.Substring(0, colonIndex).Trim().ToLowerInvariant();
+                            var value = line.Substring(colonIndex + 1).Trim();
+                            headerDict[name] = value;
+                        }
+
+                        var contentStartIndex = headerEndIndex += crlfcrlf.Length;
+                        string partContentType = null;
+                        if (headerDict.TryGetValue("content-type", out var partFullContentType))
+                            partContentType = partFullContentType.Split(';')[0].Trim().ToLowerInvariant();
+
+                        if (partContentType == "application/json")
+                        {
+                            var responseJson = System.Text.Encoding.UTF8.GetString(bytes, contentStartIndex, endPartIndex - contentStartIndex);
+                            contractResult = System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult<byte[]>>(responseJson, _jsonOptions);
+                        }
+                        else
+                        {
+                            byteArray = new byte[endPartIndex - contentStartIndex];
+                            System.Buffer.BlockCopy(bytes, contentStartIndex, byteArray, 0, byteArray.Length);
+                        }
+
+                        if (contractResult is not null && byteArray is not null)
+                            break;
+                    }
+
+                    if (contractResult is null && byteArray is null)
+                        return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>((int)response.StatusCode);
+                    else if (byteArray is null)
+                        return contractResult;
+                    else if (contractResult is null)
+                        return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>((int)response.StatusCode) { Data = byteArray };
+                    else
+                    {
+                        contractResult.Data = byteArray;
+                        return contractResult;
+                    }
+                }
+                else
+                {
+                    var bytes = await response.Content.ReadAsByteArrayAsync();
+                    return new Kanawanagasaki.BlazorContracts.ContractResult<{{metadata.ReturnFullyQualifiedName}}>
+                    {
+                        StatusCode = (int)response.StatusCode,
+                        Data = bytes
+                    };
+                }
+                """);
+        }
+        else
+        {
+            iw.WriteLine($$"""
+                using var response = await _http.SendAsync(request, ct);
+                var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
+                
+                if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+                {
+                    return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode);
+                }
+                else if (contentType == "{{Constants.MessagePackMediaType}}")
+                {
+                    var __bytes = await response.Content.ReadAsByteArrayAsync();
+                    var __result = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(__bytes);
+                    if (__result is null)
+                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Failed to deserialize MessagePack response");
+                    return __result;
+                }
+                else if (contentType == "application/json")
+                {
+                    var contentStr = await response.Content.ReadAsStringAsync();
+                    return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(contentStr, _jsonOptions);
+                }
+                else
+                {
+                    return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Unexpected content type " + contentType);
+                }
+                """);
+        }
     }
 }

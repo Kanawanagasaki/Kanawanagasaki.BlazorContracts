@@ -81,7 +81,9 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         {
             if (item.Contract.VerbStr != "Post" && item.Contract.VerbStr != "Put")
                 continue;
-            if (!item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
+            if (item.Contract.IsMessagePack)
+                continue;
+            if (!item.Contract.HasBinaryProperty)
                 continue;
 
             iw.IndentLevel = 6;
@@ -120,15 +122,22 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.WriteLine();
             iw.WriteLineAndIncrease($"__endpoints.Map{item.Contract.VerbStr}(\"{item.Contract.Endpoint}\", async (");
 
-            if (item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put")
+            var isPostOrPut = item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put";
+            var needsMultipart = isPostOrPut && (
+                item.Contract.HasContractFileProperty
+                || (!item.Contract.IsMessagePack && item.Contract.HasByteArrayProperty));
+
+            if (isPostOrPut)
             {
-                if (item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
+                if (needsMultipart)
+                    iw.WriteLine("Microsoft.AspNetCore.Http.HttpRequest __httpRequest,");
+                else if (item.Contract.IsMessagePack)
                     iw.WriteLine("Microsoft.AspNetCore.Http.HttpRequest __httpRequest,");
                 else
                     iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromBody] {item.Contract.FullyQualifiedName} __contract,");
             }
 
-            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
+            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType || item.Contract.IsReturnMessagePack)
                 iw.WriteLine("Microsoft.AspNetCore.Http.HttpResponse __httpResponse,");
 
             var routeParts = item.Contract.Endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
@@ -158,7 +167,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.WriteLine("System.Threading.CancellationToken __cancellationToken) =>");
             iw.DecreaseAndWriteLine("{");
 
-            if (((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsContractFile)) || item.Contract.IsDisposableReturnType)
+            if ((isPostOrPut && item.Contract.HasContractFileProperty) || item.Contract.IsDisposableReturnType)
                 iw.IncreaseAndWriteLine("var __toDispose = new System.Collections.Generic.List<System.IDisposable>();");
             else
                 iw.IndentLevel++;
@@ -170,109 +179,13 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
             iw.IndentLevel++;
 
-            if ((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsByteArray || x.IsContractFile))
+            if (needsMultipart)
             {
-                if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
-                {
-                    iw.WriteLine($$"""
-                        var __form = await __httpRequest.ReadFormAsync();
-
-                        var __contractJson = __form["{{item.Contract.Name}}"].FirstOrDefault();
-                        if (__contractJson is null)
-                        {
-                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                            var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
-                            var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
-                            __httpResponse.ContentType = "application/json; charset=utf-8";
-                            __httpResponse.ContentLength = __jsonBytes.Length;
-                            await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
-                            return;
-                        }
-
-                        {{item.Contract.FullyQualifiedName}} __contract;
-                        try
-                        {
-                            __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.Contract.FullyQualifiedName}}>(__contractJson);
-                            if (__contract is null)
-                            {
-                                var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                                var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
-                                var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
-                                __httpResponse.ContentType = "application/json; charset=utf-8";
-                                __httpResponse.ContentLength = __jsonBytes.Length;
-                                await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
-                                return;
-                            }
-                        }
-                        catch
-                        {
-                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                            var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
-                            var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
-                            __httpResponse.ContentType = "application/json; charset=utf-8";
-                            __httpResponse.ContentLength = __jsonBytes.Length;
-                            await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
-                            return;
-                        }
-                        """);
-                }
-                else
-                {
-                    iw.WriteLine($$"""
-                        var __form = await __httpRequest.ReadFormAsync();
-
-                        var __contractJson = __form["{{item.Contract.Name}}"].FirstOrDefault();
-                        if (__contractJson is null)
-                        {
-                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                            return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
-                        }
-
-                        {{item.Contract.FullyQualifiedName}} __contract;
-                        try
-                        {
-                            __contract = System.Text.Json.JsonSerializer.Deserialize<{{item.Contract.FullyQualifiedName}}>(__contractJson);
-                            if (__contract is null)
-                            {
-                                var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                                return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
-                            }
-                        }
-                        catch
-                        {
-                            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
-                            return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
-                        }
-                        """);
-                }
-
-                foreach (var prop in item.Contract.Properties.Values)
-                {
-                    if (prop.IsByteArray)
-                    {
-                        iw.WriteLine($$"""
-                            var __bytesFile_{{prop.Name}} = __form.Files["{{prop.Name}}"];
-                            if (__bytesFile_{{prop.Name}} is not null)
-                            {
-                                using var __ms = new System.IO.MemoryStream();
-                                await __bytesFile_{{prop.Name}}.CopyToAsync(__ms);
-                                __contract.{{prop.Name}} = __ms.ToArray();
-                            }
-                            """);
-                    }
-                    else if (prop.IsContractFile)
-                    {
-                        iw.WriteLine($$"""
-                            var __streamFile_{{prop.Name}} = __form.Files["{{prop.Name}}"];
-                            if (__streamFile_{{prop.Name}} is not null)
-                            {
-                                var __stream = __streamFile_{{prop.Name}}.OpenReadStream();
-                                __toDispose.Add(__stream);
-                                __contract.{{prop.Name}} = new Kanawanagasaki.BlazorContracts.ContractFile(__stream, __streamFile_{{prop.Name}}.FileName, __streamFile_{{prop.Name}}.ContentType, __streamFile_{{prop.Name}}.Length);
-                            }
-                            """);
-                    }
-                }
+                GenerateMultipartContractParsing(iw, item);
+            }
+            else if (isPostOrPut && item.Contract.IsMessagePack)
+            {
+                GenerateMessagePackBodyContractParsing(iw, item);
             }
 
             if (item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete")
@@ -309,154 +222,32 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 iw.WriteLineAndDecrease("__toDispose.Add(__result.Data);");
             }
 
-            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
-            {
-                iw.WriteLine($$"""
-                    __httpResponse.StatusCode = __result.StatusCode;
-                    if (__result.StatusCode == Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
-                        return;
-
-                    if (__result.Data is null)
-                    {
-                        var __json = System.Text.Json.JsonSerializer.Serialize(__result, __jsonOptions);
-                        var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
-                        __httpResponse.ContentType = "application/json; charset=utf-8";
-                        __httpResponse.ContentLength = __jsonBytes.Length;
-                        await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
-                    }
-                    else if (__result.ErrorMessage is null)
-                    {
-                    """);
-
-                if (item.Contract.IsByteArrayReturnType)
-                {
-                    iw.IncreaseAndWriteLine($$"""
-                        __httpResponse.ContentType = "application/octet-stream";
-                        __httpResponse.ContentLength = __result.Data.Length;
-                        await __httpResponse.Body.WriteAsync(__result.Data, __cancellationToken);
-                        """);
-                }
-                else
-                {
-                    iw.IncreaseAndWriteLine($$"""
-                        __httpResponse.ContentType = "application/octet-stream";
-                        if (__result.Data.CanSeek)
-                        {
-                            __result.Data.Position = 0;
-                            __httpResponse.ContentLength = __result.Data.Length;
-                        }
-                        await __result.Data.CopyToAsync(__httpResponse.Body, __cancellationToken);
-                        """);
-                }
-
-                iw.DecreaseAndWriteLine($$"""
-                    }
-                    else
-                    {
-                        var __boundary = "boundary" + System.Guid.NewGuid().ToString("N");
-                        __httpResponse.ContentType = $"multipart/related; boundary=\"{__boundary}\"";
-
-                        var __beforeBinary =
-                            $"--{__boundary}\r\n" +
-                            $"Content-Type: application/json; charset=utf-8\r\n" +
-                            $"Content-Disposition: inline; name=\"{{item.Contract.Name}}\"\r\n" +
-                            $"\r\n" +
-                            System.Text.Json.JsonSerializer.Serialize(__result, __jsonOptions) + "\r\n" +
-                            $"--{__boundary}\r\n" +
-                            $"Content-Type: application/octet-stream\r\n" +
-                            $"Content-Disposition: attachment; filename=\"Data.bin\"\r\n" +
-                            $"Content-Transfer-Encoding: binary\r\n" +
-                            $"\r\n";
-                        var __beforeBinaryBytes = System.Text.Encoding.UTF8.GetBytes(__beforeBinary);
-                        
-                        var __afterBinary = $"\r\n--{__boundary}--\r\n";
-                        var __afterBinaryBytes = System.Text.Encoding.UTF8.GetBytes(__afterBinary);
-
-                    """);
-
-                if (item.Contract.IsByteArrayReturnType)
-                {
-                    iw.IncreaseAndWriteLine($$"""
-                        __httpResponse.ContentLength = __beforeBinaryBytes.Length + __result.Data.Length + __afterBinaryBytes.Length;
-                        
-                        await __httpResponse.Body.WriteAsync(__beforeBinaryBytes, __cancellationToken);
-                        await __httpResponse.Body.WriteAsync(__result.Data, __cancellationToken);
-                        await __httpResponse.Body.WriteAsync(__afterBinaryBytes, __cancellationToken);
-                        """);
-                }
-                else
-                {
-                    iw.IncreaseAndWriteLine($$"""
-                        if (__result.Data.CanSeek)
-                        {
-                            __result.Data.Position = 0;
-                            __httpResponse.ContentLength = __beforeBinaryBytes.Length + __result.Data.Length + __afterBinaryBytes.Length;
-                        }
-                        
-                        await __httpResponse.Body.WriteAsync(__beforeBinaryBytes, __cancellationToken);
-                        await __result.Data.CopyToAsync(__httpResponse.Body, __cancellationToken);
-                        await __httpResponse.Body.WriteAsync(__afterBinaryBytes, __cancellationToken);
-                        """);
-                }
-
-                iw.DecreaseAndWriteLine("}");
-            }
-            else
-            {
-                iw.WriteLine($$"""
-                    if (__result.StatusCode == Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
-                    {
-                        return Microsoft.AspNetCore.Http.Results.NoContent();
-                    }
-                    else
-                    {
-                        return Microsoft.AspNetCore.Http.Results.Json(__result, __jsonOptions, statusCode: __result.StatusCode);
-                    }
-                    """);
-            }
+            GenerateResponseWriting(iw, item);
 
             iw.DecreaseAndWriteLine($$"""
                 }
                 catch (System.Exception e)
                 {
                 """);
-            if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
-            {
-                iw.IncreaseAndWriteLine($$"""
-                    __logger.LogError(e, "Failed to handle a contract");
-                    var __internalErrorResult = new Kanawanagasaki.BlazorContracts.ContractResult(500, "Internal Server Error");
-                    __httpResponse.StatusCode = __internalErrorResult.StatusCode;
-                    var __json = System.Text.Json.JsonSerializer.Serialize(__internalErrorResult, __jsonOptions);
-                    var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
-                    __httpResponse.ContentType = "application/json; charset=utf-8";
-                    __httpResponse.ContentLength = __jsonBytes.Length;
-                    await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
-                    """);
-            }
-            else
-            {
-                iw.IncreaseAndWriteLine($$"""
-                    __logger.LogError(e, "Failed to handle a contract");
-                    var __internalErrorResult = new Kanawanagasaki.BlazorContracts.ContractResult(500, "Internal Server Error");
-                    return Microsoft.AspNetCore.Http.Results.Json(__internalErrorResult, __jsonOptions, statusCode: __internalErrorResult.StatusCode);
-                    """);
-            }
+
+            GenerateErrorResponse(iw, item);
+
             iw.DecreaseAndWriteLine("}");
 
-            if (((item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put") && item.Contract.Properties.Values.Any(x => x.IsContractFile)) || item.Contract.IsDisposableReturnType)
+            if ((isPostOrPut && item.Contract.HasContractFileProperty) || item.Contract.IsDisposableReturnType)
             {
                 iw.WriteLine("""
-                finally
-                {
-                    foreach (var __disposable in __toDispose)
+                    finally
                     {
-                        if(__disposable is IAsyncDisposable __asyncDisposable)
-                            await __asyncDisposable.DisposeAsync();
-                        else
-                            __disposable.Dispose();
+                        foreach (var __disposable in __toDispose)
+                        {
+                            if(__disposable is IAsyncDisposable __asyncDisposable)
+                                await __asyncDisposable.DisposeAsync();
+                            else
+                                __disposable.Dispose();
+                        }
                     }
-                }
-                """);
+                    """);
             }
 
             iw.DecreaseAndWriteLine("})");
@@ -473,6 +264,319 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         iw.DecreaseAndWriteLine("}");
 
         context.AddSource("ContractsEndpoints.g.cs", sw.ToString());
+    }
+
+    private static void GenerateMultipartContractParsing(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        var contractFqn = item.Contract.FullyQualifiedName;
+
+        var badRequestStatement = GenerateBadRequestStatement(item);
+
+        iw.WriteLine($$"""
+                var __form = await __httpRequest.ReadFormAsync();
+
+                {{GetContractParseExpressionPrefix(item, contractFqn)}}
+                {
+                    {{badRequestStatement}}
+                }
+
+                {{contractFqn}} __contract;
+                try
+                {
+                    {{GetContractParseExpressionBody(item, contractFqn)}}
+                    if (__contract is null)
+                    {
+                        {{badRequestStatement}}
+                    }
+                }
+                catch
+                {
+                    {{badRequestStatement}}
+                }
+                """);
+
+        foreach (var prop in item.Contract.Properties.Values)
+        {
+            if (item.Contract.IsMessagePack && prop.IsByteArray)
+                continue;
+
+            if (prop.IsByteArray)
+            {
+                iw.WriteLine($$"""
+                    var __bytesFile_{{prop.Name}} = __form.Files["{{prop.Name}}"];
+                    if (__bytesFile_{{prop.Name}} is not null)
+                    {
+                        using var __ms = new System.IO.MemoryStream();
+                        await __bytesFile_{{prop.Name}}.CopyToAsync(__ms);
+                        __contract.{{prop.Name}} = __ms.ToArray();
+                    }
+                    """);
+            }
+            else if (prop.IsContractFile)
+            {
+                iw.WriteLine($$"""
+                    var __streamFile_{{prop.Name}} = __form.Files["{{prop.Name}}"];
+                    if (__streamFile_{{prop.Name}} is not null)
+                    {
+                        var __stream = __streamFile_{{prop.Name}}.OpenReadStream();
+                        __toDispose.Add(__stream);
+                        __contract.{{prop.Name}} = new Kanawanagasaki.BlazorContracts.ContractFile(__stream, __streamFile_{{prop.Name}}.FileName, __streamFile_{{prop.Name}}.ContentType, __streamFile_{{prop.Name}}.Length);
+                    }
+                    """);
+            }
+        }
+    }
+
+    private static string GetContractParseExpressionPrefix(HandlerMetadata item, string contractFqn)
+    {
+        if (item.Contract.IsMessagePack)
+            return $"var __contractFile = __form.Files[\"{item.Contract.Name}\"];\n                if (__contractFile is null)";
+        return $"var __contractJson = __form[\"{item.Contract.Name}\"].FirstOrDefault();\n                if (__contractJson is null)";
+    }
+
+    private static string GetContractParseExpressionBody(HandlerMetadata item, string contractFqn)
+    {
+        if (item.Contract.IsMessagePack)
+        {
+            return $$"""
+                using var __ms = new System.IO.MemoryStream();
+                await __contractFile.CopyToAsync(__ms);
+                var __msgpackBytes = __ms.ToArray();
+                __contract = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<{{contractFqn}}>(__msgpackBytes);
+                """;
+        }
+        return $"__contract = System.Text.Json.JsonSerializer.Deserialize<{contractFqn}>(__contractJson);";
+    }
+
+    private static void GenerateMessagePackBodyContractParsing(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        var contractFqn = item.Contract.FullyQualifiedName;
+        var badRequestStatement = GenerateBadRequestStatement(item);
+
+        iw.WriteLine($$"""
+                {{contractFqn}} __contract;
+                try
+                {
+                    using var __ms = new System.IO.MemoryStream();
+                    await __httpRequest.Body.CopyToAsync(__ms, __cancellationToken);
+                    var __msgpackBytes = __ms.ToArray();
+                    if (__msgpackBytes.Length == 0)
+                    {
+                        {{badRequestStatement}}
+                    }
+
+                    __contract = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<{{contractFqn}}>(__msgpackBytes);
+                    if (__contract is null)
+                    {
+                        {{badRequestStatement}}
+                    }
+                }
+                catch
+                {
+                    {{badRequestStatement}}
+                }
+                """);
+    }
+
+    private static void GenerateResponseWriting(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
+        {
+            GenerateByteStreamResponseWriting(iw, item);
+        }
+        else if (item.Contract.IsReturnMessagePack)
+        {
+            GenerateMessagePackResponseWriting(iw, item);
+        }
+        else
+        {
+            iw.WriteLine($$"""
+                if (__result.StatusCode == Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
+                {
+                    return Microsoft.AspNetCore.Http.Results.NoContent();
+                }
+                else
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(__result, __jsonOptions, statusCode: __result.StatusCode);
+                }
+                """);
+        }
+    }
+
+    private static void GenerateByteStreamResponseWriting(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        iw.WriteLine($$"""
+            __httpResponse.StatusCode = __result.StatusCode;
+            if (__result.StatusCode == Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
+                return;
+
+            if (__result.Data is null)
+            {
+                var __json = System.Text.Json.JsonSerializer.Serialize(__result, __jsonOptions);
+                var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
+                __httpResponse.ContentType = "application/json; charset=utf-8";
+                __httpResponse.ContentLength = __jsonBytes.Length;
+                await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
+            }
+            else if (__result.ErrorMessage is null)
+            {
+            """);
+
+        if (item.Contract.IsByteArrayReturnType)
+        {
+            iw.IncreaseAndWriteLine($$"""
+                __httpResponse.ContentType = "application/octet-stream";
+                __httpResponse.ContentLength = __result.Data.Length;
+                await __httpResponse.Body.WriteAsync(__result.Data, __cancellationToken);
+                """);
+        }
+        else
+        {
+            iw.IncreaseAndWriteLine($$"""
+                __httpResponse.ContentType = "application/octet-stream";
+                if (__result.Data.CanSeek)
+                {
+                    __result.Data.Position = 0;
+                    __httpResponse.ContentLength = __result.Data.Length;
+                }
+                await __result.Data.CopyToAsync(__httpResponse.Body, __cancellationToken);
+                """);
+        }
+
+        iw.DecreaseAndWriteLine($$"""
+            }
+            else
+            {
+                var __boundary = "boundary" + System.Guid.NewGuid().ToString("N");
+                __httpResponse.ContentType = $"multipart/related; boundary=\"{__boundary}\"";
+
+                var __beforeBinary =
+                    $"--{__boundary}\r\n" +
+                    $"Content-Type: application/json; charset=utf-8\r\n" +
+                    $"Content-Disposition: inline; name=\"{{item.Contract.Name}}\"\r\n" +
+                    $"\r\n" +
+                    System.Text.Json.JsonSerializer.Serialize(__result, __jsonOptions) + "\r\n" +
+                    $"--{__boundary}\r\n" +
+                    $"Content-Type: application/octet-stream\r\n" +
+                    $"Content-Disposition: attachment; filename=\"Data.bin\"\r\n" +
+                    $"Content-Transfer-Encoding: binary\r\n" +
+                    $"\r\n";
+                var __beforeBinaryBytes = System.Text.Encoding.UTF8.GetBytes(__beforeBinary);
+                
+                var __afterBinary = $"\r\n--{__boundary}--\r\n";
+                var __afterBinaryBytes = System.Text.Encoding.UTF8.GetBytes(__afterBinary);
+
+            """);
+
+        if (item.Contract.IsByteArrayReturnType)
+        {
+            iw.IncreaseAndWriteLine($$"""
+                __httpResponse.ContentLength = __beforeBinaryBytes.Length + __result.Data.Length + __afterBinaryBytes.Length;
+                
+                await __httpResponse.Body.WriteAsync(__beforeBinaryBytes, __cancellationToken);
+                await __httpResponse.Body.WriteAsync(__result.Data, __cancellationToken);
+                await __httpResponse.Body.WriteAsync(__afterBinaryBytes, __cancellationToken);
+                """);
+        }
+        else
+        {
+            iw.IncreaseAndWriteLine($$"""
+                if (__result.Data.CanSeek)
+                {
+                    __result.Data.Position = 0;
+                    __httpResponse.ContentLength = __beforeBinaryBytes.Length + __result.Data.Length + __afterBinaryBytes.Length;
+                }
+                
+                await __httpResponse.Body.WriteAsync(__beforeBinaryBytes, __cancellationToken);
+                await __result.Data.CopyToAsync(__httpResponse.Body, __cancellationToken);
+                await __httpResponse.Body.WriteAsync(__afterBinaryBytes, __cancellationToken);
+                """);
+        }
+
+        iw.DecreaseAndWriteLine("}");
+    }
+
+    private static void GenerateMessagePackResponseWriting(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        iw.WriteLine($$"""
+            if (__result.StatusCode == Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
+            {
+                __httpResponse.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent;
+                return;
+            }
+
+            __httpResponse.StatusCode = __result.StatusCode;
+            __httpResponse.ContentType = "{{Constants.MessagePackMediaType}}";
+            await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(
+                __httpResponse.Body, __result, __cancellationToken);
+            """);
+    }
+
+    private static string GenerateBadRequestStatement(HandlerMetadata item)
+    {
+        if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
+        {
+            return """
+                var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+                var __json = System.Text.Json.JsonSerializer.Serialize(__badRequestResult, __jsonOptions);
+                var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
+                __httpResponse.ContentType = "application/json; charset=utf-8";
+                __httpResponse.ContentLength = __jsonBytes.Length;
+                await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
+                return;
+                """;
+        }
+        if (item.Contract.IsReturnMessagePack)
+        {
+            return $$"""
+                var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult<{{item.Contract.ReturnFullyQualifiedName}}>(400);
+                __httpResponse.StatusCode = __badRequestResult.StatusCode;
+                __httpResponse.ContentType = "{{Constants.MessagePackMediaType}}";
+                await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(
+                    __httpResponse.Body, __badRequestResult, __cancellationToken);
+                return;
+                """;
+        }
+        return """
+            var __badRequestResult = new Kanawanagasaki.BlazorContracts.ContractResult(400);
+            return Microsoft.AspNetCore.Http.Results.Json(__badRequestResult, __jsonOptions, statusCode: __badRequestResult.StatusCode);
+            """;
+    }
+
+    private static void GenerateErrorResponse(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType)
+        {
+            iw.IncreaseAndWriteLine($$"""
+                __logger.LogError(e, "Failed to handle a contract");
+                var __internalErrorResult = new Kanawanagasaki.BlazorContracts.ContractResult(500, "Internal Server Error");
+                __httpResponse.StatusCode = __internalErrorResult.StatusCode;
+                var __json = System.Text.Json.JsonSerializer.Serialize(__internalErrorResult, __jsonOptions);
+                var __jsonBytes = System.Text.Encoding.UTF8.GetBytes(__json);
+                __httpResponse.ContentType = "application/json; charset=utf-8";
+                __httpResponse.ContentLength = __jsonBytes.Length;
+                await __httpResponse.Body.WriteAsync(__jsonBytes, __cancellationToken);
+                """);
+        }
+        else if (item.Contract.IsReturnMessagePack)
+        {
+            iw.IncreaseAndWriteLine($$"""
+                __logger.LogError(e, "Failed to handle a contract");
+                var __internalErrorResult = new Kanawanagasaki.BlazorContracts.ContractResult<{{item.Contract.ReturnFullyQualifiedName}}>(500, "Internal Server Error");
+                __httpResponse.StatusCode = __internalErrorResult.StatusCode;
+                __httpResponse.ContentType = "{{Constants.MessagePackMediaType}}";
+                await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(
+                    __httpResponse.Body, __internalErrorResult, __cancellationToken);
+                """);
+        }
+        else
+        {
+            iw.IncreaseAndWriteLine($$"""
+                __logger.LogError(e, "Failed to handle a contract");
+                var __internalErrorResult = new Kanawanagasaki.BlazorContracts.ContractResult(500, "Internal Server Error");
+                return Microsoft.AspNetCore.Http.Results.Json(__internalErrorResult, __jsonOptions, statusCode: __internalErrorResult.StatusCode);
+                """);
+        }
     }
 
     private static List<T> DeepSearchForType<T>(SyntaxNode node) where T : SyntaxNode
