@@ -495,7 +495,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     var __bytes = await response.Content.ReadAsByteArrayAsync();
                     var __result = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(__bytes);
                     if (__result is null)
-                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Failed to deserialize MessagePack response");
+                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Failed to deserialize the response");
                     return __result;
                 }
                 else if (contentType == "application/json")
