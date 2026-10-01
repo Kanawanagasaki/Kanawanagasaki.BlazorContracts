@@ -5,6 +5,6 @@ using Kanawanagasaki.BlazorContracts;
 [Contract("/api/auth/secured-put", EVerbs.Put)]
 public class AuthSecuredPutContract : IContract<string>
 {
-    public int Id { get; set; }
-    public string Message { get; set; } = string.Empty;
+    public int Id { get; init; }
+    public string Message { get; init; } = string.Empty;
 }

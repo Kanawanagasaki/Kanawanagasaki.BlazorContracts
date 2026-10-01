@@ -12,6 +12,18 @@ public class PropertyMetadata
     public bool IsReferenceType { get; }
     public bool IsNullable { get; }
 
+    public bool HasPublicSetter { get; }
+    public bool IsInitOnly { get; }
+
+    public string? JsonPropertyName { get; }
+
+    public bool IsFormattable { get; }
+
+    private static readonly HashSet<string> FormattableInterfaceNames =
+    [
+        "IFormattable", "ISpanFormattable", "IUtf8SpanFormattable"
+    ];
+
     public PropertyMetadata(IPropertySymbol propSymb)
     {
         Name = propSymb.Name;
@@ -21,5 +33,20 @@ public class PropertyMetadata
         IsContractFile = propSymb.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == "Kanawanagasaki.BlazorContracts.ContractFile";
         IsReferenceType = propSymb.Type.IsReferenceType;
         IsNullable = propSymb.Type.NullableAnnotation is NullableAnnotation.Annotated;
+
+        HasPublicSetter = propSymb.SetMethod is not null && propSymb.SetMethod.DeclaredAccessibility is Accessibility.Public;
+        IsInitOnly = propSymb.SetMethod is not null && propSymb.SetMethod.IsInitOnly;
+
+        var jsonNameAttr = propSymb.GetAttributes().FirstOrDefault(x
+            => x.AttributeClass is not null
+            && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.JsonPropertyNameAttributeFullName);
+        JsonPropertyName = jsonNameAttr?.ConstructorArguments.FirstOrDefault().Value?.ToString();
+
+        IsFormattable = propSymb.Type.AllInterfaces.Any(x => FormattableInterfaceNames.Contains(x.Name));
     }
+
+    public string FormatToString(string accessExpression)
+        => IsFormattable
+            ? $"{accessExpression}.ToString(null, System.Globalization.CultureInfo.InvariantCulture)"
+            : $"{accessExpression}.ToString()";
 }

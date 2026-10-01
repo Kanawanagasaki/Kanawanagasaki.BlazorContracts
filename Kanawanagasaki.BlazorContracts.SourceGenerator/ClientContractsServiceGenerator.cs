@@ -148,7 +148,12 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                                      .ToArray();
 
             foreach (var routePart in routeParts)
-                endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Web.HttpUtility.UrlEncode(contract.{routePart}.ToString())}}");
+            {
+                var routeToString = metadata.Properties.TryGetValue(routePart, out var routeProp)
+                    ? routeProp.FormatToString($"contract.{routePart}")
+                    : $"contract.{routePart}.ToString()";
+                endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Uri.EscapeDataString({routeToString})}}");
+            }
 
             var hasQuery = false;
             if (metadata.VerbStr == "Get" || metadata.VerbStr == "Delete")
@@ -159,32 +164,33 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
                 if (0 < query.Count)
                 {
-                    iw.WriteLine("var query = System.Web.HttpUtility.ParseQueryString(string.Empty);");
+                    iw.WriteLine("var __query = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string?>>();");
                     foreach (var kv in query)
                     {
-                        if (kv.Value.IsReferenceType || kv.Value.IsNullable)
+                        var queryKey = (kv.Value.JsonPropertyName ?? kv.Key).Replace("\\", "\\\\").Replace("\"", "\\\"");
+                        if (kv.Value.IsReferenceType)
                         {
-                            if (kv.Value.IsReferenceType)
-                            {
-                                iw.WriteLine($"if (contract.{kv.Key} is not null)");
-                                iw.IncreaseAndWriteLine($"query[\"{kv.Key}\"] = contract.{kv.Key}.ToString();");
-                            }
-                            else
-                            {
-                                iw.WriteLine($"if (contract.{kv.Key}.HasValue)");
-                                iw.IncreaseAndWriteLine($"query[\"{kv.Key}\"] = contract.{kv.Key}.Value.ToString();");
-                            }
-                            iw.IndentLevel--;
+                            iw.WriteLine($"if (contract.{kv.Key} is not null)");
+                            iw.IncreaseAndWriteLine($"__query.Add(new(\"{queryKey}\", {kv.Value.FormatToString($"contract.{kv.Key}")}));");
+                        }
+                        else if (kv.Value.IsNullable)
+                        {
+                            iw.WriteLine($"if (contract.{kv.Key}.HasValue)");
+                            iw.IncreaseAndWriteLine($"__query.Add(new(\"{queryKey}\", {kv.Value.FormatToString($"contract.{kv.Key}.Value")}));");
                         }
                         else
-                            iw.WriteLine($"query[\"{kv.Key}\"] = contract.{kv.Key}.ToString();");
+                        {
+                            iw.WriteLine($"if (!System.Collections.Generic.EqualityComparer<{kv.Value.FullyQualifiedName}>.Default.Equals(contract.{kv.Key}, default))");
+                            iw.IncreaseAndWriteLine($"__query.Add(new(\"{queryKey}\", {kv.Value.FormatToString($"contract.{kv.Key}")}));");
+                        }
+                        iw.IndentLevel--;
                     }
                     hasQuery = true;
                 }
             }
             iw.WriteLine($$"""
                 var method = System.Net.Http.HttpMethod.{{metadata.VerbStr}};
-                var endpoint = $"{{endpoint}}"{{(hasQuery ? " + \"?\" + query" : "")}};
+                var endpoint = {{(hasQuery ? $"Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString($\"{endpoint}\", __query)" : $"$\"{endpoint}\"")}};
 
                 using var request = new System.Net.Http.HttpRequestMessage(method, endpoint);
 
@@ -482,30 +488,39 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         }
         else
         {
+            var resultTypeName = metadata.IsDisposableReturnType
+                ? Constants.DisposableContractResultFullName
+                : Constants.ContractResultFullName;
+
             iw.WriteLine($$"""
-                using var response = await _http.SendAsync(request, ct);
+                {{(metadata.IsDisposableReturnType ? "var" : "using var")}} response = await _http.SendAsync(request, ct);
                 var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
-                
+
                 if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
                 {
-                    return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode);
+                    return new {{resultTypeName}}{{contractResultGenericPart}}((int)response.StatusCode);
                 }
                 else if (contentType == "{{Constants.MessagePackMediaType}}")
                 {
                     var __bytes = await response.Content.ReadAsByteArrayAsync();
-                    var __result = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(__bytes);
+                    var __result = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<{{resultTypeName}}{{contractResultGenericPart}}>(__bytes);
                     if (__result is null)
-                        return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Failed to deserialize the response");
+                        return new {{resultTypeName}}{{contractResultGenericPart}}((int)response.StatusCode, "Failed to deserialize the response");
+                    {{(metadata.IsDisposableReturnType ? "__result.HttpResponse = response;" : string.Empty)}}
                     return __result;
                 }
                 else if (contentType == "application/json")
                 {
                     var contentStr = await response.Content.ReadAsStringAsync();
-                    return System.Text.Json.JsonSerializer.Deserialize<Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}>(contentStr, _jsonOptions);
+                    var __result = System.Text.Json.JsonSerializer.Deserialize<{{resultTypeName}}{{contractResultGenericPart}}>(contentStr, _jsonOptions);
+                    if (__result is null)
+                        return new {{resultTypeName}}{{contractResultGenericPart}}((int)response.StatusCode, "Failed to deserialize the response");
+                    {{(metadata.IsDisposableReturnType ? "__result.HttpResponse = response;" : string.Empty)}}
+                    return __result;
                 }
                 else
                 {
-                    return new Kanawanagasaki.BlazorContracts.ContractResult{{contractResultGenericPart}}((int)response.StatusCode, "Unexpected content type " + contentType);
+                    return new {{resultTypeName}}{{contractResultGenericPart}}((int)response.StatusCode, "Unexpected content type " + contentType);
                 }
                 """);
         }

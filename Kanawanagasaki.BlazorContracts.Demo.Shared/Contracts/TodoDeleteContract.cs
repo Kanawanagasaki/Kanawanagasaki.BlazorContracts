@@ -5,5 +5,5 @@ using Kanawanagasaki.BlazorContracts;
 [Contract("/api/todos/{Id}", EVerbs.Delete)]
 public class TodoDeleteContract : IContract
 {
-    public int Id { get; set; }
+    public int Id { get; init; }
 }

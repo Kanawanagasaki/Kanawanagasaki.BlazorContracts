@@ -10,6 +10,8 @@ public static class Constants
 
     public const string IAsyncDisposableFullName = "System.IAsyncDisposable";
 
+    public const string JsonPropertyNameAttributeFullName = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
+
     public const string MessagePackObjectAttributeFullName = "MessagePack.MessagePackObjectAttribute";
     public const string BlazorContractsMessagePackFullName = "Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack";
     public const string MessagePackMediaType = "application/x-msgpack";

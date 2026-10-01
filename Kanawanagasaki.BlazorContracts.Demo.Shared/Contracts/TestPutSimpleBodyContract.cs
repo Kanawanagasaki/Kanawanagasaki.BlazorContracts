@@ -6,6 +6,6 @@ using Kanawanagasaki.BlazorContracts.Demo.Shared.Models;
 [Contract("/api/test/update", EVerbs.Put)]
 public class TestPutSimpleBodyContract : IContract<ComplexResponse>
 {
-    public long Number { get; set; }
-    public int Seed { get; set; }
+    public long Number { get; init; }
+    public int Seed { get; init; }
 }

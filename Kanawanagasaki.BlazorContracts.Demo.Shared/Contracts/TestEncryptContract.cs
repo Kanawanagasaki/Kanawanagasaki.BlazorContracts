@@ -6,5 +6,5 @@ using Kanawanagasaki.BlazorContracts.Demo.Shared.Models;
 [Contract("/api/test/crypto/encrypt", EVerbs.Post)]
 public class TestEncryptContract : IContract<CryptoResult>
 {
-    public byte[] Plaintext { get; set; } = [];
+    public byte[] Plaintext { get; init; } = [];
 }

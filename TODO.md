@@ -8,7 +8,7 @@
 8. Handle route parameters assignation for POST/PUT using [UnsafeAccessor] instead of trying to assign property directly (for example for [Contract("/resource/{Id}", EVerbs.Put)])
 9. Endpoints - add [FromServices] for injected services
 10. ContractsService (Generated server service) - remove injected services bloat from constructor and fields, inject only IServiceProvider, get only required (or nullable) services for a contract in ProcessAsync method. If service is required property or in constructor then it is required service - GetRequiredService<>, otherwise GetService<>
-11. Remove stupid double underscore from the variable names in generated code if there is no way of user/generated code conflict
+11. Remove stupid double underscore prefix from the variable names in generated code completely, make code look like a normal code. __query => query, __service_1 => service1. Private fields in generated code should have one underscore prefix
 12. Refactor code so duplicate generated code (for example checking response media type in every ProcessAsync method to determine if it is json or messagepack) will be moved into generalized methods instead
 13. Make it so client and server are wire-format agnostic - always check content type headers and act on it, if contract is decorated for message pack but client sends content type - json then server should try to parse body as json, same when server returns json content type for contract response decorated with message pack. The reason being is that server owner can change serialization but clients can be slow to update and continue to send object serialized old way. That also means that byte arrays, contract files and streams must always be handled for json, message pack and multipart paths
 14. Add support for compressing contract requests and responses using K4os.Compression.LZ4:
@@ -30,3 +30,4 @@
 18. Check (and fix if broken) properties with only getters, with getters and non public setters, for GET/POST/PUT/DELETE. Potential problem is assignation of parameters from query and route, json and message pack serialization and deserialization will handle such cases by themselves
 19. Check by setting { get; init; } on all properties for all contracts in demo project and trying to build. Project should work with all public properties and should work with { get; init; } - public getter and public init without any problem
 20. Fix ExcludeFromDescriptionAttribute, DisableOutputCacheAttribute, Microsoft.AspNetCore.Antiforgery.IgnoreAntiforgeryTokenAttribute
+21. Fix all warnings in all projects

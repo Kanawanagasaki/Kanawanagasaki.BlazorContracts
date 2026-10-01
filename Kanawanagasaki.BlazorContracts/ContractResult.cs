@@ -65,6 +65,8 @@ public class DisposableContractResult<TData> : ContractResult<TData>, IDisposabl
 
     public DisposableContractResult() : base() { }
 
+    public DisposableContractResult(int statusCode) : base(statusCode) { }
+
     public DisposableContractResult(int statusCode, string? errorMessage) : base(statusCode, errorMessage) { }
 
     public DisposableContractResult(TData data) : base(data) { }

@@ -5,5 +5,5 @@ using Kanawanagasaki.BlazorContracts;
 [Contract("/api/test/{Id}", EVerbs.Get)]
 public class TestGetRouteParamNoResponseContract : IContract
 {
-    public int Id { get; set; }
+    public int Id { get; init; }
 }

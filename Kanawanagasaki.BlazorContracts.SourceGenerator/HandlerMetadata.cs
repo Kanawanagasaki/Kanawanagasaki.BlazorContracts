@@ -9,7 +9,7 @@ internal record HandlerMetadata
     internal ContractMetadata Contract { get; }
 
     internal List<(string TypeName, int Index)> HandlerConstructorInjectedServicesTypes { get; } = [];
-    internal List<(string TypeName, string Name, int Index)> HandlerPropertiesInjectedServicesTypes { get; } = [];
+    internal List<(string TypeName, string Name, int Index, bool IsRequired)> HandlerPropertiesInjectedServicesTypes { get; } = [];
     internal List<(string TypeName, int Index)> HandlerInjectedServicesTypes { get; } = [];
 
     internal List<EndpointAttributeMetadata> EndpointAttributes { get; } = [];
@@ -32,11 +32,13 @@ internal record HandlerMetadata
         }
 
         var handlerProps = GetAllProperties(handler);
-        var handlerPropTypes = handlerProps.Select(x => (TypeName: x.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS), x.Name)).ToArray();
-        foreach (var (type, name) in handlerPropTypes)
+        var handlerPropTypes = handlerProps
+            .Select(x => (TypeName: x.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS), x.Name, x.IsRequired))
+            .ToArray();
+        foreach (var (type, name, isRequired) in handlerPropTypes)
         {
             int index = injectedServiceIndex++;
-            HandlerPropertiesInjectedServicesTypes.Add((type, name, index));
+            HandlerPropertiesInjectedServicesTypes.Add((type, name, index, isRequired));
             HandlerInjectedServicesTypes.Add((type, index));
         }
     }

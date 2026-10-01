@@ -116,6 +116,8 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                         };
                 """);
 
+        var unsafeAccessors = new List<string>();
+
         foreach (var item in list)
         {
             iw.IndentLevel = 2;
@@ -129,12 +131,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
             if (isPostOrPut)
             {
-                if (needsMultipart)
-                    iw.WriteLine("Microsoft.AspNetCore.Http.HttpRequest __httpRequest,");
-                else if (item.Contract.IsMessagePack)
-                    iw.WriteLine("Microsoft.AspNetCore.Http.HttpRequest __httpRequest,");
-                else
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromBody] {item.Contract.FullyQualifiedName} __contract,");
+                iw.WriteLine("Microsoft.AspNetCore.Http.HttpRequest __httpRequest,");
             }
 
             if (item.Contract.IsByteArrayReturnType || item.Contract.IsStreamReturnType || item.Contract.IsReturnMessagePack)
@@ -155,16 +152,45 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     if (0 <= routeParts.IndexOf(kv.Key))
                         continue;
 
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key},");
+                    if (kv.Value.IsReferenceType || kv.Value.IsNullable)
+                    {
+                        if (kv.Value.JsonPropertyName is null)
+                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key},");
+                        else
+                        {
+                            var queryKey = kv.Value.JsonPropertyName.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key},");
+                        }
+                    }
                 }
             }
 
             foreach (var (injectedServiceType, injectedServiceIndex) in item.HandlerInjectedServicesTypes)
-                iw.WriteLine($"{injectedServiceType} __injectedService_{injectedServiceIndex},");
+                iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromServices] {injectedServiceType} __injectedService_{injectedServiceIndex},");
 
             iw.WriteLine($"Microsoft.Extensions.Logging.ILogger<{item.HandlerFullyQualifiedName}> __logger,");
 
-            iw.WriteLine("System.Threading.CancellationToken __cancellationToken) =>");
+            if (item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete")
+            {
+                foreach (var kv in item.Contract.Properties)
+                {
+                    if (0 <= routeParts.IndexOf(kv.Key))
+                        continue;
+
+                    if (!kv.Value.IsReferenceType && !kv.Value.IsNullable)
+                    {
+                        if (kv.Value.JsonPropertyName is null)
+                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
+                        else
+                        {
+                            var queryKey = kv.Value.JsonPropertyName.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
+                        }
+                    }
+                }
+            }
+
+            iw.WriteLine("System.Threading.CancellationToken __cancellationToken = default) =>");
             iw.DecreaseAndWriteLine("{");
 
             if ((isPostOrPut && item.Contract.HasContractFileProperty) || item.Contract.IsDisposableReturnType)
@@ -181,11 +207,15 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
             if (needsMultipart)
             {
-                GenerateMultipartContractParsing(iw, item);
+                GenerateMultipartContractParsing(iw, item, unsafeAccessors);
             }
             else if (isPostOrPut && item.Contract.IsMessagePack)
             {
                 GenerateMessagePackBodyContractParsing(iw, item);
+            }
+            else if (isPostOrPut)
+            {
+                GenerateJsonBodyContractParsing(iw, item);
             }
 
             if (item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete")
@@ -194,13 +224,30 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 iw.WriteLine("{");
                 iw.IndentLevel++;
                 foreach (var propName in item.Contract.Properties.Keys)
-                    iw.WriteLine($"{propName} = {propName},");
+                {
+                    if (item.Contract.Properties[propName].HasPublicSetter)
+                        iw.WriteLine($"{propName} = {propName},");
+                }
                 iw.DecreaseAndWriteLine("};");
+
+                foreach (var propName in item.Contract.Properties.Keys)
+                {
+                    var contractProp = item.Contract.Properties[propName];
+                    if (contractProp.HasPublicSetter)
+                        continue;
+
+                    iw.WriteLine(GetBackingFieldAssignmentStatement(item, propName, contractProp, propName, unsafeAccessors));
+                }
             }
             else if (0 < routeParts.Length)
             {
                 foreach (var routePart in routeParts)
-                    iw.WriteLine($"__contract.{routePart} = {routePart};");
+                {
+                    if (!item.Contract.Properties.TryGetValue(routePart, out var routeProp))
+                        continue;
+
+                    iw.WriteLine(GetBackingFieldAssignmentStatement(item, routePart, routeProp, routePart, unsafeAccessors));
+                }
             }
 
             var handlerConstructorArgs = string.Join(", ", item.HandlerConstructorInjectedServicesTypes.Select(x => $"__injectedService_{x.Index}"));
@@ -261,12 +308,33 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         }
 
         iw.DecreaseAndWriteLine("}");
+
+        if (0 < unsafeAccessors.Count)
+        {
+            iw.WriteLine();
+            foreach (var accessor in unsafeAccessors)
+                iw.WriteLine(accessor);
+        }
+
         iw.DecreaseAndWriteLine("}");
 
         context.AddSource("ContractsEndpoints.g.cs", sw.ToString());
     }
 
-    private static void GenerateMultipartContractParsing(IndentedTextWriter iw, HandlerMetadata item)
+    private static string GetBackingFieldAssignmentStatement(HandlerMetadata item, string propName, PropertyMetadata prop, string valueExpression, List<string> unsafeAccessors)
+    {
+        if ((prop.HasPublicSetter && !prop.IsInitOnly) || item.Contract.FullyQualifiedName.Contains('<'))
+            return $"__contract.{propName} = {valueExpression};";
+
+        var accessorName = $"__backingField_{unsafeAccessors.Count + 1}";
+        unsafeAccessors.Add($$"""
+                [System.Runtime.CompilerServices.UnsafeAccessor(System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "<{{propName}}>k__BackingField")]
+                private static extern ref {{prop.FullyQualifiedName}} {{accessorName}}({{item.Contract.FullyQualifiedName}} target);
+            """);
+        return $"{accessorName}(__contract) = {valueExpression};";
+    }
+
+    private static void GenerateMultipartContractParsing(IndentedTextWriter iw, HandlerMetadata item, List<string> unsafeAccessors)
     {
         var contractFqn = item.Contract.FullyQualifiedName;
 
@@ -308,7 +376,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     {
                         using var __ms = new System.IO.MemoryStream();
                         await __bytesFile_{{prop.Name}}.CopyToAsync(__ms);
-                        __contract.{{prop.Name}} = __ms.ToArray();
+                        {{GetBackingFieldAssignmentStatement(item, prop.Name, prop, "__ms.ToArray()", unsafeAccessors)}}
                     }
                     """);
             }
@@ -320,7 +388,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     {
                         var __stream = __streamFile_{{prop.Name}}.OpenReadStream();
                         __toDispose.Add(__stream);
-                        __contract.{{prop.Name}} = new Kanawanagasaki.BlazorContracts.ContractFile(__stream, __streamFile_{{prop.Name}}.FileName, __streamFile_{{prop.Name}}.ContentType, __streamFile_{{prop.Name}}.Length);
+                        {{GetBackingFieldAssignmentStatement(item, prop.Name, prop, $"new Kanawanagasaki.BlazorContracts.ContractFile(__stream, __streamFile_{prop.Name}.FileName, __streamFile_{prop.Name}.ContentType, __streamFile_{prop.Name}.Length)", unsafeAccessors)}}
                     }
                     """);
             }
@@ -366,6 +434,36 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     }
 
                     __contract = Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Deserialize<{{contractFqn}}>(__msgpackBytes);
+                    if (__contract is null)
+                    {
+                        {{badRequestStatement}}
+                    }
+                }
+                catch
+                {
+                    {{badRequestStatement}}
+                }
+                """);
+    }
+
+    private static void GenerateJsonBodyContractParsing(IndentedTextWriter iw, HandlerMetadata item)
+    {
+        var contractFqn = item.Contract.FullyQualifiedName;
+        var badRequestStatement = GenerateBadRequestStatement(item);
+
+        iw.WriteLine($$"""
+                {{contractFqn}} __contract;
+                try
+                {
+                    using var __ms = new System.IO.MemoryStream();
+                    await __httpRequest.Body.CopyToAsync(__ms, __cancellationToken);
+                    var __bodyBytes = __ms.ToArray();
+                    if (__bodyBytes.Length == 0)
+                    {
+                        {{badRequestStatement}}
+                    }
+
+                    __contract = System.Text.Json.JsonSerializer.Deserialize<{{contractFqn}}>(__bodyBytes, __jsonOptions);
                     if (__contract is null)
                     {
                         {{badRequestStatement}}

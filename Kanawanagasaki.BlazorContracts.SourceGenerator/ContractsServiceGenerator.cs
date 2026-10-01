@@ -50,17 +50,6 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         if (!optIns.Contains("serverservice"))
             return;
 
-        var injectedServices = new Dictionary<string, string>();
-
-        foreach (var meta in list)
-        {
-            foreach (var (injectedServiceType, _) in meta.HandlerInjectedServicesTypes)
-            {
-                if (!injectedServices.ContainsKey(injectedServiceType))
-                    injectedServices[injectedServiceType] = $"_injected_service_" + (injectedServices.Count + 1);
-            }
-        }
-
         var hasAuthAttributes = list.Any(m => m.EndpointAttributes.Any(a => a.IsAuthAttribute));
         var hasPolicyAuth = list.Any(m => m.EndpointAttributes.Any(a => a.IsAuthorize && a.Policy is not null));
 
@@ -163,42 +152,20 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         iw.WriteLine("public class ContractsService : Kanawanagasaki.BlazorContracts.IContractsService");
         iw.WriteLineAndIncrease("{");
 
+        iw.WriteLine("private readonly System.IServiceProvider _serviceProvider;");
         iw.WriteLine("private readonly Microsoft.Extensions.Logging.ILogger<ContractsService> _logger;");
-        foreach (var kv in injectedServices)
-            iw.WriteLine($"private readonly {kv.Key} {kv.Value};");
 
-        if (hasAuthAttributes)
-        {
-            iw.WriteLine("private readonly Microsoft.AspNetCore.Http.IHttpContextAccessor _httpContextAccessor;");
-            if (hasPolicyAuth)
-                iw.WriteLine("private readonly Microsoft.AspNetCore.Authorization.IAuthorizationService _authorizationService;");
-        }
+        if (hasAuthAttributes && hasPolicyAuth)
+            iw.WriteLine("private readonly Microsoft.AspNetCore.Authorization.IAuthorizationService _authorizationService;");
 
         iw.WriteLine();
 
-        iw.WriteLineAndIncrease("public ContractsService(");
-        var constructorParams = new List<string>();
-        foreach (var kv in injectedServices)
-            constructorParams.Add($"{kv.Key} {kv.Value}");
-        if (hasAuthAttributes)
-        {
-            constructorParams.Add("Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor");
-            if (hasPolicyAuth)
-                constructorParams.Add("Microsoft.AspNetCore.Authorization.IAuthorizationService authorizationService");
-        }
-        constructorParams.Add("Microsoft.Extensions.Logging.ILogger<ContractsService> logger");
-        iw.WriteLine(string.Join(",\n", constructorParams));
-        iw.DecreaseAndWriteLine(")");
+        iw.WriteLineAndIncrease("public ContractsService(System.IServiceProvider serviceProvider)");
         iw.WriteLineAndIncrease("{");
-        iw.WriteLine("this._logger = logger;");
-        foreach (var kv in injectedServices)
-            iw.WriteLine($"this.{kv.Value} = {kv.Value};");
-        if (hasAuthAttributes)
-        {
-            iw.WriteLine("this._httpContextAccessor = httpContextAccessor;");
-            if (hasPolicyAuth)
-                iw.WriteLine("this._authorizationService = authorizationService;");
-        }
+        iw.WriteLine("this._serviceProvider = serviceProvider;");
+        iw.WriteLine("this._logger = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ContractsService>>(serviceProvider);");
+        if (hasAuthAttributes && hasPolicyAuth)
+            iw.WriteLine("this._authorizationService = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.AspNetCore.Authorization.IAuthorizationService>(serviceProvider);");
         iw.DecreaseAndWriteLine("}");
 
         foreach (var metadata in list)
@@ -222,27 +189,36 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             iw.WriteLine("try");
             iw.WriteLineAndIncrease("{");
 
-            var constructorNames = metadata.HandlerConstructorInjectedServicesTypes
-                .Select(x => injectedServices.TryGetValue(x.TypeName, out var fieldName) ? fieldName : null)
-                .Where(x => x is not null);
+            var constructorNames = new List<string>();
+            foreach (var (injectedServiceType, _) in metadata.HandlerConstructorInjectedServicesTypes)
+            {
+                var fieldName = $"__service_{constructorNames.Count + 1}";
+                iw.WriteLine($"var {fieldName} = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{injectedServiceType}>(_serviceProvider);");
+                constructorNames.Add(fieldName);
+            }
+
+            var propertyAssignments = new List<string>();
+            foreach (var (injectedServiceType, propName, _, isRequired) in metadata.HandlerPropertiesInjectedServicesTypes)
+            {
+                var fieldName = $"__service_{constructorNames.Count + propertyAssignments.Count + 1}";
+                if (isRequired)
+                    iw.WriteLine($"var {fieldName} = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{injectedServiceType}>(_serviceProvider);");
+                else
+                    iw.WriteLine($"var {fieldName} = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<{injectedServiceType}>(_serviceProvider);");
+                propertyAssignments.Add($"{propName} = {fieldName}");
+            }
 
             iw.Write($"var handler = new {metadata.HandlerFullyQualifiedName}({string.Join(",", constructorNames)})");
-            if (0 < metadata.HandlerPropertiesInjectedServicesTypes.Count)
+            if (0 < propertyAssignments.Count)
             {
                 iw.WriteLine();
                 iw.WriteLineAndIncrease("{");
-                var isFirst = true;
-                foreach (var injectProp in metadata.HandlerPropertiesInjectedServicesTypes)
+                for (var i = 0; i < propertyAssignments.Count; i++)
                 {
-                    if (!injectedServices.TryGetValue(injectProp.TypeName, out var fieldName))
-                        continue;
-
-                    if (isFirst)
-                        isFirst = false;
+                    if (i < propertyAssignments.Count - 1)
+                        iw.WriteLine($"{propertyAssignments[i]},");
                     else
-                        iw.WriteLine(",");
-
-                    iw.Write($"{injectProp.Name} = {fieldName}");
+                        iw.Write(propertyAssignments[i]);
                 }
                 iw.WriteLineAndDecrease("");
                 iw.Write("}");
@@ -292,7 +268,9 @@ public class ContractsServiceGenerator : IIncrementalGenerator
         if (authorizeAttributes.Count == 0)
             return;
 
-        iw.WriteLine("var __user = _httpContextAccessor.HttpContext?.User;");
+        var authResultIndex = 0;
+        iw.WriteLine("var __httpContextAccessor = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>(_serviceProvider);");
+        iw.WriteLine("var __user = __httpContextAccessor.HttpContext?.User;");
         iw.WriteLine("if (__user is null || __user.Identity is null || !__user.Identity.IsAuthenticated)");
         iw.WriteLineAndIncrease("{");
         if (metadata.Contract.IsDisposableReturnType)
@@ -330,8 +308,9 @@ public class ContractsServiceGenerator : IIncrementalGenerator
 
             if (authAttr.Policy is not null)
             {
-                iw.WriteLine($"var __authResult = await Microsoft.AspNetCore.Authorization.AuthorizationServiceExtensions.AuthorizeAsync(_authorizationService, __user, \"{authAttr.Policy.Replace("\"", "\\\"")}\");");
-                iw.WriteLine("if (!__authResult.Succeeded)");
+                authResultIndex++;
+                iw.WriteLine($"var __authResult_{authResultIndex} = await Microsoft.AspNetCore.Authorization.AuthorizationServiceExtensions.AuthorizeAsync(_authorizationService, __user, \"{authAttr.Policy.Replace("\"", "\\\"")}\");");
+                iw.WriteLine($"if (!__authResult_{authResultIndex}.Succeeded)");
                 iw.WriteLineAndIncrease("{");
                 if (metadata.Contract.IsDisposableReturnType)
                     iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.DisposableContractResult{returnTypeGenericPart}(403, \"Forbidden\");");
