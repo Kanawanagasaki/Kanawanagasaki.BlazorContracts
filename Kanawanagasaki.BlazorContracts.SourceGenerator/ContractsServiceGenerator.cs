@@ -325,7 +325,7 @@ public class ContractsServiceGenerator : IIncrementalGenerator
                 var schemes = authAttr.AuthenticationSchemes.Split(',').Select(s => s.Trim()).Where(s => 0 < s.Length).ToArray();
                 if (schemes.Length > 0)
                 {
-                    iw.WriteLine($"if (!user.Identities.Any(x => x.AuthenticationType is not null && new[] {{ {string.Join(", ", schemes.Select(s => $"\"{s.Replace("\"", "\\\"")}\""))} }}.Contains(identity.AuthenticationType)))");
+                    iw.WriteLine($"if (!user.Identities.Any(x => x.AuthenticationType is not null && new[] {{ {string.Join(", ", schemes.Select(s => $"\"{s.Replace("\"", "\\\"")}\""))} }}.Contains(x.AuthenticationType)))");
                     iw.WriteLineAndIncrease("{");
                     if (metadata.Contract.IsDisposableReturnType)
                         iw.WriteLine($"return new Kanawanagasaki.BlazorContracts.DisposableContractResult{returnTypeGenericPart}(401, \"Unauthorized\");");
