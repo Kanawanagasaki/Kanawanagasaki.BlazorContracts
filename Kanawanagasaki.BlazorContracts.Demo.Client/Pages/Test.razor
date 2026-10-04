@@ -211,7 +211,24 @@ else
                 passedTestsCount++;
             StateHasChanged();
 
-            categories.AddRange(new[] { cat1, cat2, cat3, cat4, cat5, cat6, cat7, cat8, cat9, catA, catB });
+            // LZ4 compression tests
+            var catC = new CategoryResult("POST - LZ4 Compression");
+            await TestCompressEcho(catC, "compressed json echo");
+            if (catC.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestCompressBinary(catC, "compressed binary parts");
+            if (catC.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            await TestCompressMessagePack(catC, "compressed message pack");
+            if (catC.Items.Last().Pass)
+                passedTestsCount++;
+            StateHasChanged();
+
+            categories.AddRange(new[] { cat1, cat2, cat3, cat4, cat5, cat6, cat7, cat8, cat9, catA, catB, catC });
             StateHasChanged();
         }
         catch (Exception ex)
@@ -826,6 +843,77 @@ else
         {
             cat.Items.Add(new CategoryItem(label, false, ex.Message));
             logs.Add(new LogEntry($"DELETE threw: {ex.Message}", false));
+        }
+    }
+
+    // -- LZ4 compression --
+
+    async Task TestCompressEcho(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry("POST /api/test/compress/echo (lz4)", null));
+            var result = await Contracts.ProcessAsync(new TestCompressEchoContract { Message = "lz4 compression works" });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Compressed echo: lz4 compression works";
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode} {result.ErrorMessage}"));
+
+            if (pass)
+                logs.Add(new LogEntry("compressed json round trip ok", true));
+            else
+                logs.Add(new LogEntry($"compressed json FAILED: status={result.StatusCode} {result.ErrorMessage}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"compressed json threw: {ex.Message}", false));
+        }
+    }
+
+    async Task TestCompressBinary(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry("POST /api/test/compress/binary (lz4 multipart)", null));
+            var payload = Enumerable.Range(0, 4096).Select(i => (byte)(i / 16)).ToArray();
+            var result = await Contracts.ProcessAsync(new TestCompressBinaryContract { Content = payload, FileName = "page.bin" });
+
+            var pass = result.IsSuccessWithData
+                && result.Data.Length == "echo:".Length + payload.Length
+                && result.Data.Skip("echo:".Length).SequenceEqual(payload);
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode} {result.ErrorMessage} len={result.Data?.Length}"));
+
+            if (pass)
+                logs.Add(new LogEntry("compressed binary round trip ok", true));
+            else
+                logs.Add(new LogEntry($"compressed binary FAILED: status={result.StatusCode} {result.ErrorMessage}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"compressed binary threw: {ex.Message}", false));
+        }
+    }
+
+    async Task TestCompressMessagePack(CategoryResult cat, string label)
+    {
+        try
+        {
+            logs.Add(new LogEntry("POST /api/msgpack/compress (lz4 msgpack)", null));
+            var result = await Contracts.ProcessAsync(new MessagePackCompressContract { Seed = 33, Days = 4, City = "Lz4 City" });
+
+            var pass = result.IsSuccessWithData && result.Data.Summary == "Lz4 City";
+            cat.Items.Add(new CategoryItem(label, pass, $"status={result.StatusCode} {result.ErrorMessage}"));
+
+            if (pass)
+                logs.Add(new LogEntry("compressed msgpack round trip ok", true));
+            else
+                logs.Add(new LogEntry($"compressed msgpack FAILED: status={result.StatusCode} {result.ErrorMessage}", false));
+        }
+        catch (Exception ex)
+        {
+            cat.Items.Add(new CategoryItem(label, false, ex.Message));
+            logs.Add(new LogEntry($"compressed msgpack threw: {ex.Message}", false));
         }
     }
 

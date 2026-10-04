@@ -5,10 +5,9 @@ using Microsoft.CodeAnalysis;
 internal static class Helper
 {
     internal static bool IsFrameworkAssembly(string name)
-        => name.StartsWith("System") ||
-           name.StartsWith("Microsoft") ||
-           name.StartsWith("mscorlib") ||
-           name.StartsWith("netstandard");
+        => name is "mscorlib" or "netstandard" or "System" or "Microsoft"
+        || name.StartsWith("System.", StringComparison.Ordinal)
+        || name.StartsWith("Microsoft.", StringComparison.Ordinal);
 
     internal static IEnumerable<INamedTypeSymbol> GetAllTypes(INamespaceSymbol namespaceSymbol, CancellationToken ct)
     {

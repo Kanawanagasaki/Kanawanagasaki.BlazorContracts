@@ -4,7 +4,6 @@ using Microsoft.CodeAnalysis;
 
 internal record HandlerMetadata
 {
-    internal string HandlerName { get; }
     internal string HandlerFullyQualifiedName { get; }
     internal ContractMetadata Contract { get; }
 
@@ -16,7 +15,6 @@ internal record HandlerMetadata
 
     private HandlerMetadata(INamedTypeSymbol handler, ContractMetadata contract)
     {
-        HandlerName = handler.Name;
         HandlerFullyQualifiedName = handler.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT);
         Contract = contract;
 

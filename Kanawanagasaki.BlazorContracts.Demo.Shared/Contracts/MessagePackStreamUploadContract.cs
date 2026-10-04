@@ -9,11 +9,17 @@ using MessagePack;
 public class MessagePackStreamUploadContract : IContract<MessagePackBinaryResponse>
 {
     [Key(0)]
-    public string FileName { get; init; } = "upload.bin";
+    public string FileName { get; init; }
 
     [Key(1)]
-    public string MediaType { get; init; } = "application/octet-stream";
+    public string MediaType { get; init; }
 
     [Key(2)]
     public ContractFile? Content { get; init; }
+
+    public MessagePackStreamUploadContract()
+    {
+        FileName = "upload.bin";
+        MediaType = "application/octet-stream";
+    }
 }

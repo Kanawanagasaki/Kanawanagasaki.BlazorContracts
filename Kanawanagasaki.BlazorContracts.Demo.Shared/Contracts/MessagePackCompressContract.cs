@@ -4,9 +4,10 @@ using Kanawanagasaki.BlazorContracts;
 using Kanawanagasaki.BlazorContracts.Demo.Shared.Models;
 using MessagePack;
 
-[Contract("/api/msgpack/weather", EVerbs.Post)]
+[Contract("/api/msgpack/compress", EVerbs.Post)]
 [MessagePackObject]
-public class MessagePackWeatherContract : IContract<MessagePackWeatherForecast>
+[ContractCompression]
+public class MessagePackCompressContract : IContract<MessagePackWeatherForecast>
 {
     [Key(0)]
     public int Seed { get; init; }
@@ -15,10 +16,10 @@ public class MessagePackWeatherContract : IContract<MessagePackWeatherForecast>
     public int Days { get; init; }
 
     [Key(2)]
-    public byte[] Payload { get; init; }
+    public string City { get; init; }
 
-    public MessagePackWeatherContract()
+    public MessagePackCompressContract()
     {
-        Payload = Array.Empty<byte>();
+        City = string.Empty;
     }
 }

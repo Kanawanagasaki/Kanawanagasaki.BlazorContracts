@@ -14,6 +14,7 @@ public class PropertyMetadata
 
     public bool HasPublicSetter { get; }
     public bool IsInitOnly { get; }
+    public bool HasBackingField { get; }
 
     public string? JsonPropertyName { get; }
 
@@ -36,6 +37,7 @@ public class PropertyMetadata
 
         HasPublicSetter = propSymb.SetMethod is not null && propSymb.SetMethod.DeclaredAccessibility is Accessibility.Public;
         IsInitOnly = propSymb.SetMethod is not null && propSymb.SetMethod.IsInitOnly;
+        HasBackingField = IsAutoProperty(propSymb);
 
         var jsonNameAttr = propSymb.GetAttributes().FirstOrDefault(x
             => x.AttributeClass is not null
@@ -49,4 +51,26 @@ public class PropertyMetadata
         => IsFormattable
             ? $"{accessExpression}.ToString(null, System.Globalization.CultureInfo.InvariantCulture)"
             : $"{accessExpression}.ToString()";
+
+    private static bool IsAutoProperty(IPropertySymbol propertySymbol)
+    {
+        if (propertySymbol.ContainingType is null ||
+            propertySymbol.IsAbstract ||
+            propertySymbol.IsExtern ||
+            propertySymbol.ContainingType.TypeKind == TypeKind.Interface)
+        {
+            return false;
+        }
+
+        if (propertySymbol.ContainingType
+            .GetMembers()
+            .OfType<IFieldSymbol>()
+            .Any(field => field.IsImplicitlyDeclared &&
+                          SymbolEqualityComparer.Default.Equals(field.AssociatedSymbol, propertySymbol)))
+        {
+            return true;
+        }
+
+        return propertySymbol.DeclaringSyntaxReferences.Length == 0;
+    }
 }

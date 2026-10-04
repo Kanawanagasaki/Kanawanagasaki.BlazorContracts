@@ -9,8 +9,13 @@ using MessagePack;
 public class MessagePackContractJsonResponseContract : IContract<SimpleTestResponse>
 {
     [Key(0)]
-    public string Input { get; init; } = string.Empty;
+    public string Input { get; init; }
 
     [Key(1)]
     public int Echo { get; init; }
+
+    public MessagePackContractJsonResponseContract()
+    {
+        Input = string.Empty;
+    }
 }

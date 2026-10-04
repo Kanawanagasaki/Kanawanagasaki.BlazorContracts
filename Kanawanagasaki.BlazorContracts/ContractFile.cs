@@ -1,4 +1,4 @@
-﻿namespace Kanawanagasaki.BlazorContracts;
+namespace Kanawanagasaki.BlazorContracts;
 
 public sealed class ContractFile
 {
@@ -6,16 +6,9 @@ public sealed class ContractFile
     public string FileName { get; }
     public string MediaType { get; }
 
-    public long Length { get; } = -1;
+    public long Length { get; }
 
-    public ContractFile(Stream stream, string fileName, string mediaType)
-    {
-        Stream = stream;
-        FileName = fileName;
-        MediaType = mediaType;
-    }
-
-    public ContractFile(Stream stream, string fileName, string mediaType, long length)
+    public ContractFile(Stream stream, string fileName, string mediaType, long length = -1)
     {
         Stream = stream;
         FileName = fileName;

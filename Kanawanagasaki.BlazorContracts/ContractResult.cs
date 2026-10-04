@@ -71,7 +71,7 @@ public class DisposableContractResult<TData> : ContractResult<TData>, IDisposabl
 
     public DisposableContractResult(TData data) : base(data) { }
 
-    public DisposableContractResult(int statusCode, string? errorMessage, TData? data = default) : base(200, errorMessage)
+    public DisposableContractResult(int statusCode, string? errorMessage, TData? data = default) : base(statusCode, errorMessage)
     {
         Data = data;
     }

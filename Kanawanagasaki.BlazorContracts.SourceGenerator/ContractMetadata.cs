@@ -22,6 +22,10 @@ public class ContractMetadata
 
     public bool IsReturnMessagePack { get; }
 
+    public bool IsCompressed { get; }
+
+    public string CompressionLevelSource { get; } = Constants.LZ4CompressionLevelDefault;
+
     public bool HasByteArrayProperty { get; }
     public bool HasContractFileProperty { get; }
     public bool HasBinaryProperty { get; }
@@ -39,6 +43,20 @@ public class ContractMetadata
         IsMessagePack = type.GetAttributes().Any(x
             => x.AttributeClass is not null
             && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.MessagePackObjectAttributeFullName);
+
+        var compressionAttr = type.GetAttributes().FirstOrDefault(x
+            => x.AttributeClass is not null
+            && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.ContractCompressionAttributeFullName);
+        if (compressionAttr is not null)
+        {
+            IsCompressed = true;
+            var levelArg = compressionAttr.ConstructorArguments.FirstOrDefault();
+            if (levelArg.Value is not null)
+            {
+                var levelValue = Convert.ToInt32(levelArg.Value);
+                CompressionLevelSource = $"({Constants.LZ4CompressionLevel}){levelValue}";
+            }
+        }
 
         foreach (var iface in type.AllInterfaces)
         {

@@ -14,9 +14,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kanawanagasaki.BlazorContracts.Demo", "Kanawanagasaki.BlazorContracts.Demo\Kanawanagasaki.BlazorContracts.Demo.csproj", "{CF0FECE7-DF8E-47FB-BD86-3092A7ED69ED}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C158622E-7B36-469D-9088-4B2773E48E7D}"
-	ProjectSection(SolutionItems) = preProject
-		TODO.md = TODO.md
-	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

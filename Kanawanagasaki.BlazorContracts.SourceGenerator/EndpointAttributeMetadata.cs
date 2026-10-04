@@ -160,6 +160,7 @@ internal class EndpointAttributeMetadata
             "Microsoft.AspNetCore.Http.TagsAttribute" or
             "Microsoft.AspNetCore.Http.ProducesResponseTypeAttribute" or
             "Microsoft.AspNetCore.Http.ExcludeFromDescriptionAttribute" or
+            "Microsoft.AspNetCore.Routing.ExcludeFromDescriptionAttribute" or
             "Microsoft.AspNetCore.Mvc.ProducesResponseTypeAttribute" or
             "Microsoft.AspNetCore.OutputCaching.OutputCacheAttribute" or
             "Microsoft.AspNetCore.OutputCaching.DisableOutputCacheAttribute";
