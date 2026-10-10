@@ -7,6 +7,10 @@ public static class Constants
     public const string ContractAttributeFullName = "Kanawanagasaki.BlazorContracts.ContractAttribute";
     public const string ContractResultFullName = "Kanawanagasaki.BlazorContracts.ContractResult";
     public const string DisposableContractResultFullName = "Kanawanagasaki.BlazorContracts.DisposableContractResult";
+    public const string ContractMultipartFullName = "Kanawanagasaki.BlazorContracts.ContractMultipart";
+    public const string ContractMultipartPartFullName = "Kanawanagasaki.BlazorContracts.ContractMultipart.Part";
+    public const string ContractFileFullName = "Kanawanagasaki.BlazorContracts.ContractFile";
+    public const string ContractMediaTypesFullName = "Kanawanagasaki.BlazorContracts.ContractMediaTypes";
 
     public const string IAsyncDisposableFullName = "System.IAsyncDisposable";
 

@@ -8,10 +8,14 @@ public static class ContractMediaTypes
     public const string Binary = "application/octet-stream";
 
     public static bool IsJson(string? mediaType)
-        => GetMediaType(mediaType).Equals(Json, StringComparison.OrdinalIgnoreCase);
+        => GetMediaType(mediaType).Equals(Json, StringComparison.OrdinalIgnoreCase)
+        || GetMediaType(mediaType).Equals(JsonCharset, StringComparison.OrdinalIgnoreCase);
 
     public static bool IsMessagePack(string? mediaType)
         => GetMediaType(mediaType).Equals(MessagePack, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsBinary(string? mediaType)
+        => GetMediaType(mediaType).Equals(Binary, StringComparison.OrdinalIgnoreCase);
 
     public static bool IsMultipart(string? mediaType)
         => mediaType is not null

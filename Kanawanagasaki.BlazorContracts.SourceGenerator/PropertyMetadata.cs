@@ -44,7 +44,11 @@ public class PropertyMetadata
             && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.JsonPropertyNameAttributeFullName);
         JsonPropertyName = jsonNameAttr?.ConstructorArguments.FirstOrDefault().Value?.ToString();
 
-        IsFormattable = propSymb.Type.AllInterfaces.Any(x => FormattableInterfaceNames.Contains(x.Name));
+        var typeToCheck = propSymb.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullableType
+            ? nullableType.TypeArguments[0]
+            : propSymb.Type;
+
+        IsFormattable = typeToCheck.AllInterfaces.Any(x => FormattableInterfaceNames.Contains(x.Name));
     }
 
     public string FormatToString(string accessExpression)

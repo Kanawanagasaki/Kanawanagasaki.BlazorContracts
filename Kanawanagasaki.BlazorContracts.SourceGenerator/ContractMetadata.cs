@@ -20,11 +20,9 @@ public class ContractMetadata
 
     public bool IsMessagePack { get; }
 
-    public bool IsReturnMessagePack { get; }
-
     public bool IsCompressed { get; }
 
-    public string CompressionLevelSource { get; } = Constants.LZ4CompressionLevelDefault;
+    public string LZ4CompressionLevel { get; } = Constants.LZ4CompressionLevelDefault;
 
     public bool HasByteArrayProperty { get; }
     public bool HasContractFileProperty { get; }
@@ -54,7 +52,7 @@ public class ContractMetadata
             if (levelArg.Value is not null)
             {
                 var levelValue = Convert.ToInt32(levelArg.Value);
-                CompressionLevelSource = $"({Constants.LZ4CompressionLevel}){levelValue}";
+                LZ4CompressionLevel = $"({Constants.LZ4CompressionLevel}){levelValue}";
             }
         }
 
@@ -72,12 +70,6 @@ public class ContractMetadata
                 IsByteArrayReturnType = true;
             else if (iface.TypeArguments[0].ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(Stream).FullName)
                 IsStreamReturnType = true;
-            else if (iface.TypeArguments[0] is INamedTypeSymbol returnNamedType)
-            {
-                IsReturnMessagePack = returnNamedType.GetAttributes().Any(x
-                    => x.AttributeClass is not null
-                    && x.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.MessagePackObjectAttributeFullName);
-            }
 
             if (iface.TypeArguments[0].AllInterfaces.Any(x
                 => x.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(IDisposable).FullName

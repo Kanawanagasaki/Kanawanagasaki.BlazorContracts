@@ -68,31 +68,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             public class ClientContractsService : Kanawanagasaki.BlazorContracts.Client.ClientContractsServiceBase, Kanawanagasaki.BlazorContracts.IContractsService
             {
-                public ClientContractsService(Microsoft.AspNetCore.Components.NavigationManager navMgr)
-                    : base(CreateHttpClient(navMgr), CreateJsonOptions())
-                {
-                }
-
-                public ClientContractsService(System.Net.Http.HttpClient http)
-                    : base(http, CreateJsonOptions())
-                {
-                }
-
-                public ClientContractsService(System.Net.Http.HttpClient http, System.Text.Json.JsonSerializerOptions jsonOptions)
-                    : base(http, jsonOptions)
-                {
-                }
-
-                private static System.Net.Http.HttpClient CreateHttpClient(Microsoft.AspNetCore.Components.NavigationManager navMgr)
-                {
-                    var http = new System.Net.Http.HttpClient();
-                    http.BaseAddress = new System.Uri(navMgr.BaseUri);
-                    return http;
-                }
-
-                private static System.Text.Json.JsonSerializerOptions CreateJsonOptions()
-                {
-                    return new System.Text.Json.JsonSerializerOptions
+                private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions
                     {
                         PropertyNamingPolicy = null,
                         DictionaryKeyPolicy = null,
@@ -153,6 +129,16 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                                 }
                             }
                         }
+                    };
+
+                protected override System.Net.Http.HttpClient Http { get; }
+                protected override System.Text.Json.JsonSerializerOptions JsonOptions => _jsonOptions;
+
+                public ClientContractsService(Microsoft.AspNetCore.Components.NavigationManager navMgr)
+                {
+                    Http = new System.Net.Http.HttpClient
+                    {
+                        BaseAddress = new System.Uri(navMgr.BaseUri)
                     };
                 }
             """);
@@ -254,13 +240,13 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         var isMessagePack = metadata.IsMessagePack;
         var hasContractFile = metadata.HasContractFileProperty;
         var hasJsonBinary = !isMessagePack && metadata.HasBinaryProperty;
-        var level = metadata.IsCompressed ? $", {metadata.CompressionLevelSource}" : string.Empty;
+        var comaCompressionLevel = metadata.IsCompressed ? $", {metadata.LZ4CompressionLevel}" : string.Empty;
 
         if (isMessagePack && hasContractFile)
         {
             iw.WriteLine($$"""
                 using var content = new System.Net.Http.MultipartFormDataContent();
-                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateMessagePack(contract{{level}}), "{{metadata.Name}}", "{{metadata.Name}}.msgpack");
+                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateMessagePack(contract{{comaCompressionLevel}}), "{{metadata.Name}}", "{{metadata.Name}}.msgpack");
                 """);
 
             foreach (var prop in metadata.Properties.Values)
@@ -270,7 +256,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{level}}), "{{prop.Name}}", contract.{{prop.Name}}.FileName);
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{comaCompressionLevel}}), "{{prop.Name}}", contract.{{prop.Name}}.FileName);
                         }
                         """);
                 }
@@ -279,14 +265,14 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         else if (isMessagePack)
         {
             iw.WriteLine($$"""
-                using var content = Kanawanagasaki.BlazorContracts.ContractBody.CreateMessagePack(contract{{level}});
+                using var content = Kanawanagasaki.BlazorContracts.ContractBody.CreateMessagePack(contract{{comaCompressionLevel}});
                 """);
         }
         else if (hasJsonBinary)
         {
             iw.WriteLine($$"""
                 using var content = new System.Net.Http.MultipartFormDataContent();
-                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateJson(contract, _jsonOptions{{level}}), "{{metadata.Name}}");
+                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateJson(contract, JsonOptions{{comaCompressionLevel}}), "{{metadata.Name}}");
                 """);
 
             foreach (var prop in metadata.Properties.Values)
@@ -296,7 +282,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateBinary(contract.{{prop.Name}}, Kanawanagasaki.BlazorContracts.ContractMediaTypes.Binary{{level}}), "{{prop.Name}}", "{{prop.Name}}.bin");
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateBinary(contract.{{prop.Name}}, Kanawanagasaki.BlazorContracts.ContractMediaTypes.Binary{{comaCompressionLevel}}), "{{prop.Name}}", "{{prop.Name}}.bin");
                         }
                         """);
                 }
@@ -305,7 +291,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{level}}), "{{prop.Name}}", contract.{{prop.Name}}.FileName);
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{comaCompressionLevel}}), "{{prop.Name}}", contract.{{prop.Name}}.FileName);
                         }
                         """);
                 }
@@ -314,7 +300,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         else
         {
             iw.WriteLine($$"""
-                using var content = Kanawanagasaki.BlazorContracts.ContractBody.CreateJson(contract, _jsonOptions{{level}});
+                using var content = Kanawanagasaki.BlazorContracts.ContractBody.CreateJson(contract, JsonOptions{{comaCompressionLevel}});
                 """);
         }
 
