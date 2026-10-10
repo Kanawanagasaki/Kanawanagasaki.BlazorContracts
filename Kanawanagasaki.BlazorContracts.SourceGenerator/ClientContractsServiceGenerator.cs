@@ -66,7 +66,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             using System.Linq;
 
-            public class ClientContractsService : Kanawanagasaki.BlazorContracts.Client.ClientContractsServiceBase, Kanawanagasaki.BlazorContracts.IContractsService
+            public class ClientContractsService : Kanawanagasaki.BlazorContracts.ClientContractsServiceBase, Kanawanagasaki.BlazorContracts.IContractsService
             {
                 private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions
                     {
