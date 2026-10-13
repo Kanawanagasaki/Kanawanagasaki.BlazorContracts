@@ -11,6 +11,7 @@ public class PropertyMetadata
     public bool IsContractFile { get; }
     public bool IsReferenceType { get; }
     public bool IsNullable { get; }
+    public bool IsRequired { get; }
 
     public bool HasPublicSetter { get; }
     public bool IsInitOnly { get; }
@@ -34,6 +35,7 @@ public class PropertyMetadata
         IsContractFile = propSymb.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == "Kanawanagasaki.BlazorContracts.ContractFile";
         IsReferenceType = propSymb.Type.IsReferenceType;
         IsNullable = propSymb.Type.NullableAnnotation is NullableAnnotation.Annotated;
+        IsRequired = propSymb.IsRequired;
 
         HasPublicSetter = propSymb.SetMethod is not null && propSymb.SetMethod.DeclaredAccessibility is Accessibility.Public;
         IsInitOnly = propSymb.SetMethod is not null && propSymb.SetMethod.IsInitOnly;

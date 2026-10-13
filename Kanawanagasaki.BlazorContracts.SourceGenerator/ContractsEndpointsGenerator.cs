@@ -169,26 +169,6 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 if (item.Contract.Properties.TryGetValue(routePart, out var prop))
                     iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {prop.FullyQualifiedName} {routePart},");
 
-            if (isGetOrDelete)
-            {
-                foreach (var kv in item.Contract.Properties)
-                {
-                    if (0 <= routeParts.IndexOf(kv.Key))
-                        continue;
-
-                    if (kv.Value.IsReferenceType || kv.Value.IsNullable)
-                    {
-                        if (kv.Value.JsonPropertyName is null)
-                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key},");
-                        else
-                        {
-                            var queryKey = kv.Value.JsonPropertyName.Replace("\\", "\\\\").Replace("\"", "\\\"");
-                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key},");
-                        }
-                    }
-                }
-            }
-
             foreach (var (injectedServiceType, injectedServiceIndex) in item.HandlerInjectedServicesTypes)
                 iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromServices] {injectedServiceType} injectedService{injectedServiceIndex},");
 
@@ -201,15 +181,16 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     if (0 <= routeParts.IndexOf(kv.Key))
                         continue;
 
-                    if (!kv.Value.IsReferenceType && !kv.Value.IsNullable)
+                    if (kv.Value.JsonPropertyName is null)
+                        iw.WriteLine(kv.Value.IsReferenceType
+                            ? $"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key} = default!,"
+                            : $"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
+                    else
                     {
-                        if (kv.Value.JsonPropertyName is null)
-                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
-                        else
-                        {
-                            var queryKey = kv.Value.JsonPropertyName.Replace("\\", "\\\\").Replace("\"", "\\\"");
-                            iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
-                        }
+                        var queryKey = kv.Value.JsonPropertyName.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                        iw.WriteLine(kv.Value.IsReferenceType
+                            ? $"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key} = default!,"
+                            : $"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
                     }
                 }
             }
@@ -227,6 +208,25 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
             if (isGetOrDelete)
             {
+                foreach (var kv in item.Contract.Properties)
+                {
+                    if (0 <= routeParts.IndexOf(kv.Key))
+                        continue;
+
+                    if (!kv.Value.IsReferenceType || !kv.Value.IsRequired)
+                        continue;
+
+                    var requiredQueryKey = (kv.Value.JsonPropertyName ?? kv.Key).Replace("\\", "\\\\").Replace("\"", "\\\"");
+                    iw.WriteLine($"if ({kv.Key} is null)");
+                    iw.WriteLineAndIncrease("{");
+                    GenerateErrorResponse(iw, item.Contract
+                        , "missingRequiredQueryParamResult"
+                        , "Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest"
+                        , $"Required query parameter \\\"{requiredQueryKey}\\\" is missing.");
+                    iw.WriteLine("return;");
+                    iw.DecreaseAndWriteLine("}");
+                }
+
                 iw.Write($"var contract = new {item.Contract.FullyQualifiedName}");
                 if (item.Contract.Properties.Values.Any(x => x.HasPublicSetter))
                 {

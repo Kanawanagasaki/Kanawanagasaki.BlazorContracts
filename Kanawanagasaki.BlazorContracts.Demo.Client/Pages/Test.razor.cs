@@ -45,6 +45,7 @@ public partial class Test : ComponentBase
             await RunContractFileAsync();
             await RunContractFileDisposalAsync();
             await RunGeneratorEdgeCasesAsync();
+            await RunQueryOptionalityAsync();
             await RunCompressedAsync();
             await RunTodoCrudAsync();
             await RunWeatherAsync();
@@ -815,6 +816,160 @@ public partial class Test : ComponentBase
             var pass = result.IsSuccessWithData && result.Data.Message == "Filter=del;Page=4";
 
             Pass(cat, "DELETE with query params + custom names", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        _categories.Add(cat);
+        Recount();
+    }
+
+    private async Task RunQueryOptionalityAsync()
+    {
+        var cat = new CategoryResult("Query Optionality (GET/DELETE)");
+
+        await RunCaseAsync(cat, "GET optional: empty query -> 200 with defaults", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/query-optional");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, _, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 200
+                && status == 200
+                && data is not null
+                && data.Value.GetProperty("Message").GetString() == "Text=;Count=null;Flag=False";
+
+            Pass(cat, "GET optional: empty query -> 200 with defaults", pass,
+                $"msg={(data is null ? "n/a" : data.Value.GetProperty("Message").GetString())} status={status}");
+        });
+
+        await RunCaseAsync(cat, "GET optional: typed client sends no query when everything is default", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetQueryOptionalContract());
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Text=;Count=null;Flag=False";
+
+            Pass(cat, "GET optional: typed client sends no query when everything is default", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "GET optional: values bound when provided", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetQueryOptionalContract { Text = "hi", Count = 7, Flag = true });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Text=hi;Count=7;Flag=True";
+
+            Pass(cat, "GET optional: values bound when provided", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "DELETE optional: empty query -> 200 with defaults", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.DeleteAsync("/api/test/query-optional-delete");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, _, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 200
+                && status == 200
+                && data is not null
+                && data.Value.GetProperty("Message").GetString() == "Tag=;Limit=null";
+
+            Pass(cat, "DELETE optional: empty query -> 200 with defaults", pass,
+                $"msg={(data is null ? "n/a" : data.Value.GetProperty("Message").GetString())} status={status}");
+        });
+
+        await RunCaseAsync(cat, "DELETE optional: values bound when provided", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestDeleteQueryOptionalContract { Tag = "t", Limit = 3 });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Tag=t;Limit=3";
+
+            Pass(cat, "DELETE optional: values bound when provided", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "GET required: missing query -> 400 contract envelope", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/query-required");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "Required query parameter \"Name\" is missing."
+                && data is null
+                && (materialized.ContentType is null || materialized.ContentType.StartsWith("application/json"));
+
+            Pass(cat, "GET required: missing query -> 400 contract envelope", pass,
+                $"status={status} error={error} ct={materialized.ContentType}");
+        });
+
+        await RunCaseAsync(cat, "GET required: custom-named one missing -> envelope mentions its query key", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/query-required?Name=abc");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, _) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "Required query parameter \"note_text\" is missing.";
+
+            Pass(cat, "GET required: custom-named one missing -> envelope mentions its query key", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseAsync(cat, "GET required: all provided -> 200 echo", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetQueryRequiredContract { Name = "abc", Note = "xyz", Extra = "e" });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Name=abc;Note=xyz;Extra=e";
+
+            Pass(cat, "GET required: all provided -> 200 echo", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "GET required: only optional given on the wire -> 400 envelope", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/query-required?Extra=e");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "Required query parameter \"Name\" is missing."
+                && data is null;
+
+            Pass(cat, "GET required: only optional given on the wire -> 400 envelope", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseAsync(cat, "DELETE required: missing query -> 400 contract envelope", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.DeleteAsync("/api/test/query-required-delete");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "Required query parameter \"Id\" is missing."
+                && data is null;
+
+            Pass(cat, "DELETE required: missing query -> 400 contract envelope", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseAsync(cat, "DELETE required: provided -> 200 echo", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestDeleteQueryRequiredContract { Id = "42", Reason = "done" });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Id=42;Reason=done";
+
+            Pass(cat, "DELETE required: provided -> 200 echo", pass,
                 $"msg={result.Data?.Message} status={result.StatusCode}");
         });
 
