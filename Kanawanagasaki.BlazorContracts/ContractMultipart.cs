@@ -1,5 +1,6 @@
 namespace Kanawanagasaki.BlazorContracts;
 
+using K4os.Compression.LZ4.Streams;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Net.Http.Headers;
 using System.Runtime.CompilerServices;
@@ -14,6 +15,7 @@ public static class ContractMultipart
 
         public string? Name { get; internal set; }
         public string? FileName { get; internal set; }
+        public string? DispositionType { get; internal set; }
         public string? ContentType { get; }
         public long Length { get; }
 
@@ -33,9 +35,14 @@ public static class ContractMultipart
             if (!ContentDispositionHeaderValue.TryParse(contentDisposition, out var disposition))
                 return;
 
+            if (disposition.DispositionType.HasValue)
+                DispositionType = disposition.DispositionType.Value;
+
             if (disposition.Name.HasValue)
                 Name = disposition.Name.Value;
-            if (disposition.FileName.HasValue)
+            if (disposition.FileNameStar.HasValue && !string.IsNullOrWhiteSpace(disposition.FileNameStar.Value))
+                FileName = disposition.FileNameStar.Value;
+            else if (disposition.FileName.HasValue)
                 FileName = disposition.FileName.Value;
         }
 
@@ -76,17 +83,17 @@ public static class ContractMultipart
             if (section.Body is null)
                 continue;
 
-            var compressed = section.Headers is not null
-                && section.Headers.TryGetValue(ContractLz4.HeaderName, out var encodingValues)
-                && encodingValues.Any(ContractLz4.IsLz4);
-
             var spooled = new FileBufferingReadStream(section.Body, SpoolMemoryThreshold);
             Part part;
             try
             {
                 await spooled.DrainAsync(ct);
                 spooled.Position = 0;
-                part = new Part(compressed ? ContractLz4.CreateDecoderStream(spooled) : spooled, section.ContentType, compressed ? -1 : spooled.Length);
+
+                var compressed = ContractHeaders.IsLz4(section.Headers);
+                var contentLength = compressed ? ContractHeaders.GetXOriginalSize(section.Headers) : spooled.Length;
+
+                part = new Part(compressed ? LZ4Stream.Decode(spooled) : spooled, section.ContentType, contentLength ?? -1);
             }
             catch
             {

@@ -10,7 +10,7 @@ public static class Constants
     public const string ContractMultipartFullName = "Kanawanagasaki.BlazorContracts.ContractMultipart";
     public const string ContractMultipartPartFullName = "Kanawanagasaki.BlazorContracts.ContractMultipart.Part";
     public const string ContractFileFullName = "Kanawanagasaki.BlazorContracts.ContractFile";
-    public const string ContractMediaTypesFullName = "Kanawanagasaki.BlazorContracts.ContractMediaTypes";
+    public const string ContractHeadersFullName = "Kanawanagasaki.BlazorContracts.ContractHeaders";
 
     public const string IAsyncDisposableFullName = "System.IAsyncDisposable";
 

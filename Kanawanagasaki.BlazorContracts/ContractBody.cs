@@ -1,6 +1,7 @@
 namespace Kanawanagasaki.BlazorContracts;
 
 using K4os.Compression.LZ4;
+using K4os.Compression.LZ4.Streams;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -12,16 +13,22 @@ public static class ContractBody
     public static HttpContent CreateMessagePack<T>(T value, LZ4Level? compressionLevel = null)
         => new MessagePackContent<T>(value, compressionLevel);
 
-    public static ByteArrayContent CreateBinary(byte[] bytes, string mediaType, LZ4Level? compressionLevel = null)
+    public static HttpContent CreateBinary(byte[] bytes, string mediaType, LZ4Level? compressionLevel = null)
     {
-        if (compressionLevel is not null)
-            bytes = ContractLz4.Compress(bytes, compressionLevel.Value);
-
-        var content = new ByteArrayContent(bytes);
-        content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
-        if (compressionLevel is not null)
-            content.Headers.TryAddWithoutValidation(ContractLz4.HeaderName, ContractLz4.HeaderValue);
-        return content;
+        if (compressionLevel.HasValue)
+        {
+            var ms = new MemoryStream(bytes);
+            var content = new Lz4StreamContent(ms, compressionLevel.Value);
+            content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+            content.Headers.TryAddWithoutValidation(ContractHeaders.XContentEncodingHeader, ContractHeaders.XContentEncodingHeaderLz4);
+            return content;
+        }
+        else
+        {
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+            return content;
+        }
     }
 
     public static HttpContent CreateFile(ContractFile file, LZ4Level? compressionLevel = null)
@@ -30,13 +37,15 @@ public static class ContractBody
         {
             var content = new Lz4StreamContent(file.Stream, compressionLevel.Value);
             content.Headers.ContentType = new MediaTypeHeaderValue(file.MediaType);
-            content.Headers.TryAddWithoutValidation(ContractLz4.HeaderName, ContractLz4.HeaderValue);
+            content.Headers.TryAddWithoutValidation(ContractHeaders.XContentEncodingHeader, ContractHeaders.XContentEncodingHeaderLz4);
             return content;
         }
-
-        var streamContent = new StreamContent(file.Stream);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.MediaType);
-        return streamContent;
+        else
+        {
+            var streamContent = new StreamContent(file.Stream);
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.MediaType);
+            return streamContent;
+        }
     }
 
     private abstract class SerializerContent<T> : HttpContent
@@ -50,7 +59,7 @@ public static class ContractBody
             _compressionLevel = compressionLevel;
             Headers.ContentType = new MediaTypeHeaderValue(mediaType);
             if (compressionLevel is not null)
-                Headers.TryAddWithoutValidation(ContractLz4.HeaderName, ContractLz4.HeaderValue);
+                Headers.TryAddWithoutValidation(ContractHeaders.XContentEncodingHeader, ContractHeaders.XContentEncodingHeaderLz4);
         }
 
         protected sealed override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
@@ -64,7 +73,7 @@ public static class ContractBody
                 return;
             }
 
-            await using var encoder = ContractLz4.CreateEncoderStream(stream, _compressionLevel.Value, leaveOpen: true);
+            await using var encoder = LZ4Stream.Encode(stream, _compressionLevel.Value, leaveOpen: true);
             await SerializeAsync(encoder, ct);
             await encoder.FlushAsync(ct);
         }
@@ -82,7 +91,7 @@ public static class ContractBody
     {
         private readonly JsonSerializerOptions? _jsonOptions;
 
-        public JsonContent(T value, JsonSerializerOptions? jsonOptions, LZ4Level? compressionLevel) : base(value, ContractMediaTypes.Json, compressionLevel)
+        public JsonContent(T value, JsonSerializerOptions? jsonOptions, LZ4Level? compressionLevel) : base(value, ContractHeaders.JsonMediaType, compressionLevel)
         {
             _jsonOptions = jsonOptions;
         }
@@ -107,7 +116,7 @@ public static class ContractBody
 
         protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context, CancellationToken ct)
         {
-            await using var encoder = ContractLz4.CreateEncoderStream(stream, _level, leaveOpen: true);
+            await using var encoder = LZ4Stream.Encode(stream, _level, leaveOpen: true);
             await _source.CopyToAsync(encoder, ct);
             await encoder.FlushAsync(ct);
         }
@@ -128,7 +137,7 @@ public static class ContractBody
 
     private sealed class MessagePackContent<T> : SerializerContent<T>
     {
-        public MessagePackContent(T value, LZ4Level? compressionLevel) : base(value, ContractMediaTypes.MessagePack, compressionLevel) { }
+        public MessagePackContent(T value, LZ4Level? compressionLevel) : base(value, ContractHeaders.MessagePackMediaType, compressionLevel) { }
 
         protected override Task SerializeAsync(Stream stream, CancellationToken ct)
             => BlazorContractsMessagePack.SerializeAsync(stream, _value, ct);

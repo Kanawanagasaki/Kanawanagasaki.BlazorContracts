@@ -118,6 +118,14 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                                         if (dataProperty is not null)
                                             typeInfo.Properties.Remove(dataProperty);
                                     }
+                                    if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.DisposableContractResult<byte[]>))
+                                    {
+                                        var dataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                            property.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<byte[]>.Data)
+                                            || (property.AttributeProvider is System.Reflection.PropertyInfo dataClrProperty && dataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<byte[]>.Data)));
+                                        if (dataProperty is not null)
+                                            typeInfo.Properties.Remove(dataProperty);
+                                    }
                                     if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.ContractResult<{{typeof(Stream).FullName}}>))
                                     {
                                         var streamDataProperty = typeInfo.Properties.FirstOrDefault(property =>
@@ -125,6 +133,30 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                                             || (property.AttributeProvider is System.Reflection.PropertyInfo streamDataClrProperty && streamDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<{{typeof(Stream).FullName}}>.Data)));
                                         if (streamDataProperty is not null)
                                             typeInfo.Properties.Remove(streamDataProperty);
+                                    }
+                                    if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>))
+                                    {
+                                        var streamDataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                            property.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<{{typeof(Stream).FullName}}>.Data)
+                                            || (property.AttributeProvider is System.Reflection.PropertyInfo streamDataClrProperty && streamDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<{{typeof(Stream).FullName}}>.Data)));
+                                        if (streamDataProperty is not null)
+                                            typeInfo.Properties.Remove(streamDataProperty);
+                                    }
+                                    if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>))
+                                    {
+                                        var fileDataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                            property.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)
+                                            || (property.AttributeProvider is System.Reflection.PropertyInfo fileDataClrProperty && fileDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)));
+                                        if (fileDataProperty is not null)
+                                            typeInfo.Properties.Remove(fileDataProperty);
+                                    }
+                                    if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.DisposableContractResult<Kanawanagasaki.BlazorContracts.ContractFile>))
+                                    {
+                                        var disposableFileDataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                            property.Name == nameof(Kanawanagasaki.BlazorContracts.DisposableContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)
+                                            || (property.AttributeProvider is System.Reflection.PropertyInfo disposableFileDataClrProperty && disposableFileDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.DisposableContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)));
+                                        if (disposableFileDataProperty is not null)
+                                            typeInfo.Properties.Remove(disposableFileDataProperty);
                                     }
                                 }
                             }
@@ -220,6 +252,8 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                 iw.WriteLine("return await ProcessStreamCoreAsync(request, ct);");
             else if (metadata.IsByteArrayReturnType)
                 iw.WriteLine("return await ProcessBytesCoreAsync(request, ct);");
+            else if (metadata.IsContractFileReturnType)
+                iw.WriteLine($"return await ProcessFileCoreAsync(request, \"Data\", ct);");
             else if (metadata.IsDisposableReturnType)
                 iw.WriteLine($"return await ProcessDisposableCoreAsync<{metadata.ReturnFullyQualifiedName}>(request, ct);");
             else if (metadata.IsReturning)
@@ -282,7 +316,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateBinary(contract.{{prop.Name}}, Kanawanagasaki.BlazorContracts.ContractMediaTypes.Binary{{comaCompressionLevel}}), "{{prop.Name}}", "{{prop.Name}}.bin");
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateBinary(contract.{{prop.Name}}, {{Constants.ContractHeadersFullName}}.OctetStreamMediaType{{comaCompressionLevel}}), "{{prop.Name}}", "{{prop.Name}}.bin");
                         }
                         """);
                 }

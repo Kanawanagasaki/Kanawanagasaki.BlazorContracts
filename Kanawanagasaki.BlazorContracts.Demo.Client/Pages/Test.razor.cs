@@ -1,5 +1,7 @@
 namespace Kanawanagasaki.BlazorContracts.Demo.Client.Pages;
 
+using K4os.Compression.LZ4;
+using K4os.Compression.LZ4.Streams;
 using Kanawanagasaki.BlazorContracts;
 using Kanawanagasaki.BlazorContracts.Demo.Shared.Contracts;
 using Kanawanagasaki.BlazorContracts.Demo.Shared.Models;
@@ -40,6 +42,8 @@ public partial class Test : ComponentBase
             await RunBasicsAsync();
             await RunMessagePackAsync();
             await RunFilesAsync();
+            await RunContractFileAsync();
+            await RunContractFileDisposalAsync();
             await RunGeneratorEdgeCasesAsync();
             await RunCompressedAsync();
             await RunTodoCrudAsync();
@@ -87,6 +91,7 @@ public partial class Test : ComponentBase
         {
             cat.Items.Add(new CategoryItem(label, false, ex.Message));
             _logs.Add(new LogEntry($"{label} threw: {ex.Message}", false));
+            Console.WriteLine(ex);
         }
         StateHasChanged();
     }
@@ -348,6 +353,376 @@ public partial class Test : ComponentBase
 
             Pass(cat, "download missing file -> 404 envelope", pass,
                 $"status={result.StatusCode} err={result.ErrorMessage}");
+        });
+
+        _categories.Add(cat);
+        Recount();
+    }
+
+    private async Task RunContractFileAsync()
+    {
+        var cat = new CategoryResult("ContractFile download (headers + reassembly)");
+        using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+
+        var payload = new byte[2400];
+        for (var i = 0; i < payload.Length; i++)
+            payload[i] = (byte)(i % 256);
+        const string fileName = "réport-2026.pdf";
+        const string expectedDisposition = """attachment; filename="report-2026.pdf"; filename*=UTF-8''r%C3%A9port-2026.pdf""";
+
+        var upload = await Contracts.ProcessAsync(new FileUploadBytesContract
+        {
+            FileName = fileName,
+            MediaType = "application/pdf",
+            Content = payload
+        });
+
+        await RunCaseAsync(cat, "typed: ContractFile reassembled from headers", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new FileDownloadFileContract { Id = upload.Data?.Id ?? -1 });
+            await using var _ = result;
+
+            using var ms = new MemoryStream();
+            if (result.Data is not null)
+                await result.Data.Stream.CopyToAsync(ms);
+
+            var pass = result.IsSuccessWithData
+                && result.Data!.FileName == fileName
+                && result.Data.MediaType == "application/pdf"
+                && result.Data.Length == 2400
+                && ms.ToArray().SequenceEqual(payload);
+
+            Pass(cat, "typed: ContractFile reassembled from headers", pass,
+                $"name={result.Data?.FileName} mt={result.Data?.MediaType} len={result.Data?.Length} bytes={ms.Length} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "raw: 200 + Content-Type/Length/Disposition + exact bytes", async () =>
+        {
+            using var response = await client.GetAsync($"/api/files/{upload.Data?.Id ?? -1}/file");
+            var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
+            var body = await response.Content.ReadAsByteArrayAsync();
+
+            var pass = (int)response.StatusCode == 200
+                && response.Content.Headers.ContentType?.ToString() == "application/pdf"
+                && response.Content.Headers.ContentLength == 2400
+                && disposition == expectedDisposition
+                && body.SequenceEqual(payload);
+
+            Pass(cat, "raw: 200 + Content-Type/Length/Disposition + exact bytes", pass,
+                $"status={(int)response.StatusCode} ct={response.Content.Headers.ContentType} cl={response.Content.Headers.ContentLength} cd={disposition} bytes={body.Length}");
+        });
+
+        await RunCaseAsync(cat, "typed: missing file -> 404 envelope without data", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new FileDownloadFileContract { Id = 999999 });
+            await using var _ = result;
+
+            var pass = !result.IsSuccess
+                && result.StatusCode == 404
+                && result.ErrorMessage!.Contains("not found")
+                && result.Data is null;
+
+            Pass(cat, "typed: missing file -> 404 envelope without data", pass,
+                $"status={result.StatusCode} err={result.ErrorMessage} data={(result.Data is null ? "null" : "present")}");
+        });
+
+        await RunCaseAsync(cat, "raw: missing file -> json envelope, no disposition", async () =>
+        {
+            using var response = await client.GetAsync("/api/files/999999/file");
+            var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
+            var body = await response.Content.ReadAsByteArrayAsync();
+            var (status, error, data) = ParseJsonEnvelope(body);
+
+            var pass = (int)response.StatusCode == 404
+                && response.Content.Headers.ContentType?.ToString() == "application/json; charset=utf-8"
+                && disposition is null
+                && status == 404
+                && error is not null && error.Contains("not found")
+                && data is null;
+
+            Pass(cat, "raw: missing file -> json envelope, no disposition", pass,
+                $"status={(int)response.StatusCode} envelope={status} err={error} cd={disposition}");
+        });
+
+        await RunCaseAsync(cat, "typed: msgpack envelope 404 reassembled without data", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new FileDownloadMsgpackFileContract { Id = 999999 });
+            await using var _ = result;
+
+            var pass = !result.IsSuccess
+                && result.StatusCode == 404
+                && result.ErrorMessage!.Contains("not found")
+                && result.Data is null;
+
+            Pass(cat, "typed: msgpack envelope 404 reassembled without data", pass,
+                $"status={result.StatusCode} err={result.ErrorMessage}");
+        });
+
+        await RunCaseAsync(cat, "raw: msgpack envelope 404 (application/x-msgpack)", async () =>
+        {
+            using var response = await client.GetAsync("/api/files/999999/msgpack-file");
+            var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
+            var body = await response.Content.ReadAsByteArrayAsync();
+
+            await using var ms = new MemoryStream(body);
+            var envelope = await BlazorContractsMessagePack.DeserializeAsync<ContractResult<ContractFile>>(ms);
+
+            var pass = (int)response.StatusCode == 404
+                && response.Content.Headers.ContentType?.ToString() == "application/x-msgpack"
+                && disposition is null
+                && envelope is { StatusCode: 404, Data: null }
+                && envelope.ErrorMessage is not null && envelope.ErrorMessage.Contains("not found");
+
+            Pass(cat, "raw: msgpack envelope 404 (application/x-msgpack)", pass,
+                $"status={(int)response.StatusCode} ct={response.Content.Headers.ContentType} envelope={envelope?.StatusCode} err={envelope?.ErrorMessage}");
+        });
+
+        await RunCaseAsync(cat, "typed: error + file -> multipart reassembled", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetFileWithErrorContract());
+            await using var _ = result;
+
+            using var ms = new MemoryStream();
+            if (result.Data is not null)
+                await result.Data.Stream.CopyToAsync(ms);
+
+            var pass = result.StatusCode == 200
+                && result.ErrorMessage is not null
+                && result.Data is not null
+                && result.Data!.FileName == fileName
+                && result.Data.MediaType == "application/pdf"
+                && result.Data.Length == 2400
+                && ms.ToArray().SequenceEqual(payload);
+
+            Pass(cat, "typed: error + file -> multipart reassembled", pass,
+                $"status={result.StatusCode} err={result.ErrorMessage} name={result.Data?.FileName} bytes={ms.Length}");
+        });
+
+        await RunCaseAsync(cat, "raw: multipart envelope + attachment part with headers", async () =>
+        {
+            using var response = await client.GetAsync("/api/test/file-with-error");
+            var raw = await response.Content.ReadAsByteArrayAsync();
+            var contentType = response.Content.Headers.ContentType?.ToString() ?? "";
+
+            var rawText = Encoding.UTF8.GetString(raw);
+            var hasEnvelopePartHeader = rawText.Contains("Content-Disposition: form-data; name=\"TestGetFileWithErrorContract\"");
+            var hasFilePartHeader = rawText.Contains(expectedDisposition)
+                && rawText.Contains("Content-Type: application/pdf")
+                && rawText.Contains("Content-Length: 2400");
+
+            ContractResult<ContractFile>? envelope = null;
+            ContractFile? file = null;
+            await using var body = new MemoryStream(raw);
+            await foreach (var part in ContractMultipart.ParseAsync(body, contentType))
+            {
+                try
+                {
+                    if (part.DispositionType?.Equals("attachment", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        using var ms = new MemoryStream();
+                        await part.Stream.CopyToAsync(ms);
+                        file = new ContractFile(ms, part.FileName ?? "file", part.ContentType ?? ContractHeaders.OctetStreamMediaType, ms.Length);
+                    }
+                    else if (ContractHeaders.IsJson(part.ContentType))
+                        envelope = await JsonSerializer.DeserializeAsync<ContractResult<ContractFile>>(part.Stream);
+                }
+                finally
+                {
+                    await part.DisposeAsync();
+                }
+            }
+
+            var pass = (int)response.StatusCode == 200
+                && contentType.StartsWith("multipart/related; boundary=")
+                && hasEnvelopePartHeader
+                && hasFilePartHeader
+                && envelope is { StatusCode: 200, Data: null }
+                && envelope.ErrorMessage is not null
+                && file is not null
+                && file.FileName == fileName
+                && file.MediaType == "application/pdf"
+                && file.Length == 2400
+                && ((MemoryStream)file.Stream).ToArray().SequenceEqual(payload);
+
+            Pass(cat, "raw: multipart envelope + attachment part with headers", pass,
+                $"ct={contentType} envelope={envelope?.StatusCode}/{envelope?.ErrorMessage} file={file?.FileName}/{file?.Length}");
+        });
+
+        await RunCaseAsync(cat, "typed: compressed ContractFile reassembled (lz4)", async () =>
+        {
+            await using var result = await Contracts.ProcessAsync(new FileDownloadCompressedFileContract { Id = upload.Data?.Id ?? -1 });
+
+            using var ms = new MemoryStream();
+            if (result.Data is not null)
+                await result.Data.Stream.CopyToAsync(ms);
+
+            var pass = result.IsSuccessWithData
+                && result.Data!.FileName == fileName
+                && result.Data.MediaType == "application/pdf"
+                && result.Data.Length == 2400
+                && result.Data.Length == payload.Length
+                && ms.ToArray().SequenceEqual(payload);
+
+            Pass(cat, "typed: compressed ContractFile reassembled (lz4)", pass,
+                $"name={result.Data?.FileName} mt={result.Data?.MediaType} len={result.Data?.Length} bytes={ms.Length} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "raw: compressed file -> lz4 header + disposition, chunked body", async () =>
+        {
+            using var response = await client.GetAsync($"/api/files/{upload.Data?.Id ?? -1}/compressed-file");
+            var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
+            var lz4 = ContractHeaders.IsLz4Response(response);
+            var body = await response.Content.ReadAsByteArrayAsync();
+
+            using var decompressedMs = new MemoryStream();
+            await using (var decoder = LZ4Stream.Decode(new MemoryStream(body)))
+                await decoder.CopyToAsync(decompressedMs);
+
+            var pass = (int)response.StatusCode == 200
+                && lz4
+                && response.Headers.TransferEncodingChunked == true
+                && response.Content.Headers.ContentType?.ToString() == "application/pdf"
+                && disposition == expectedDisposition
+                && !body.SequenceEqual(payload)
+                && decompressedMs.ToArray().SequenceEqual(payload)
+                && ContractHeaders.GetXOriginalSize(response) == 2400;
+
+            Pass(cat, "raw: compressed file -> lz4 header + disposition, chunked body", pass,
+                $"status={(int)response.StatusCode} lz4={lz4} chunked={response.Headers.TransferEncodingChunked} ct={response.Content.Headers.ContentType} compressed={body.Length} decompressed={decompressedMs.Length} cd={disposition}");
+        });
+
+        await RunCaseAsync(cat, "typed: compressed 404 -> lz4 json envelope without data", async () =>
+        {
+            await using var result = await Contracts.ProcessAsync(new FileDownloadCompressedFileContract { Id = 999999 });
+
+            var pass = !result.IsSuccess
+                && result.StatusCode == 404
+                && result.ErrorMessage!.Contains("not found")
+                && result.Data is null;
+
+            Pass(cat, "typed: compressed 404 -> lz4 json envelope without data", pass,
+                $"status={result.StatusCode} err={result.ErrorMessage} data={(result.Data is null ? "null" : "present")}");
+        });
+
+        await RunCaseAsync(cat, "raw: compressed 404 -> lz4 json envelope", async () =>
+        {
+            using var response = await client.GetAsync("/api/files/999999/compressed-file");
+            var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
+            var lz4 = ContractHeaders.IsLz4Response(response);
+            var body = await response.Content.ReadAsByteArrayAsync();
+
+            using var decompressedMs = new MemoryStream();
+            await using (var decoder = LZ4Stream.Decode(new MemoryStream(body)))
+                await decoder.CopyToAsync(decompressedMs);
+
+            var (status, error, data) = ParseJsonEnvelope(decompressedMs.ToArray());
+
+            var pass = (int)response.StatusCode == 404
+                && lz4
+                && response.Content.Headers.ContentType?.ToString() == "application/json; charset=utf-8"
+                && disposition is null
+                && status == 404
+                && error is not null && error.Contains("not found")
+                && data is null;
+
+            Pass(cat, "raw: compressed 404 -> lz4 json envelope", pass,
+                $"status={(int)response.StatusCode} lz4={lz4} ct={response.Content.Headers.ContentType} envelope={status} err={error} cd={disposition}");
+        });
+
+        _categories.Add(cat);
+        Recount();
+    }
+
+    private async Task RunContractFileDisposalAsync()
+    {
+        var cat = new CategoryResult("ContractFile disposal (leaveOpen)");
+
+        await RunCaseAsync(cat, "leaveOpen: true -> stream stays open after DisposeAsync", async () =>
+        {
+            var payload = new byte[] { 1, 2, 3, 4 };
+            var ms = new MemoryStream(payload, writable: false);
+
+            var file = new ContractFile(ms, "kept-open.bin", "application/octet-stream", payload.Length, leaveOpen: true);
+            await file.DisposeAsync();
+
+            var pass = file.LeaveOpen
+                && ms.CanRead
+                && ms.ReadByte() == payload[0];
+
+            Pass(cat, "leaveOpen: true -> stream stays open after DisposeAsync", pass,
+                $"leaveOpen={file.LeaveOpen} canRead={ms.CanRead}");
+
+            ms.Dispose();
+        });
+
+        await RunCaseAsync(cat, "leaveOpen: false (default) -> stream disposed with DisposeAsync", async () =>
+        {
+            var payload = new byte[] { 1, 2, 3, 4 };
+            var ms = new MemoryStream(payload, writable: false);
+
+            var file = new ContractFile(ms, "owned.bin", "application/octet-stream", payload.Length);
+            await file.DisposeAsync();
+
+            var pass = !file.LeaveOpen
+                && !ms.CanRead;
+
+            Pass(cat, "leaveOpen: false (default) -> stream disposed with DisposeAsync", pass,
+                $"leaveOpen={file.LeaveOpen} canRead={ms.CanRead}");
+        });
+
+        await RunCaseAsync(cat, "sync Dispose: stream disposed when leaveOpen is false", async () =>
+        {
+            var payload = new byte[] { 1, 2, 3, 4 };
+            var ms = new MemoryStream(payload, writable: false);
+
+            using (var file = new ContractFile(ms, "sync.bin", "application/octet-stream", payload.Length))
+            {
+                if (!file.LeaveOpen)
+                    _ = file.Stream;
+            }
+
+            var pass = !ms.CanRead;
+
+            Pass(cat, "sync Dispose: stream disposed when leaveOpen is false", pass,
+                $"canRead={ms.CanRead}");
+        });
+
+        await RunCaseAsync(cat, "typed: disposing the result closes the underlying stream", async () =>
+        {
+            var upload = await Contracts.ProcessAsync(new FileUploadBytesContract
+            {
+                FileName = "disposal-check.pdf",
+                MediaType = "application/pdf",
+                Content = new byte[] { 9, 8, 7, 6 }
+            });
+
+            var result = await Contracts.ProcessAsync(new FileDownloadFileContract { Id = upload.Data?.Id ?? -1 });
+            Stream? stream = result.Data?.Stream;
+            var hasData = result.Data is not null;
+
+            await result.DisposeAsync();
+
+            var readThrew = false;
+            if (stream is not null)
+            {
+                try
+                {
+                    _ = await stream.ReadAsync(new byte[1]);
+                }
+                catch (ObjectDisposedException)
+                {
+                    readThrew = true;
+                }
+                catch (IOException)
+                {
+                    readThrew = true;
+                }
+            }
+
+            var pass = hasData && readThrew;
+
+            Pass(cat, "typed: disposing the result closes the underlying stream", pass,
+                $"hasData={hasData} readAfterDisposeThrew={readThrew}");
         });
 
         _categories.Add(cat);
@@ -1326,7 +1701,7 @@ public partial class Test : ComponentBase
             contentType = response.Content.Headers.ContentType?.ToString();
         }
 
-        return new MaterializedResponse((int)response.StatusCode, contentType, ContractLz4.IsLz4Response(response), body);
+        return new MaterializedResponse((int)response.StatusCode, contentType, ContractHeaders.IsLz4Response(response), body);
     }
 
     private static (int status, string? error, JsonElement? data) ParseJsonEnvelope(byte[] body)
@@ -1343,23 +1718,37 @@ public partial class Test : ComponentBase
     private static ByteArrayContent JsonContent(string json)
     {
         var content = new ByteArrayContent(Encoding.UTF8.GetBytes(json));
-        content.Headers.ContentType = new MediaTypeHeaderValue(ContractMediaTypes.Json);
+        content.Headers.ContentType = new MediaTypeHeaderValue(ContractHeaders.JsonMediaType);
         return content;
     }
 
     private static ByteArrayContent MsgpackContent(byte[] payload)
     {
         var content = new ByteArrayContent(payload);
-        content.Headers.ContentType = new MediaTypeHeaderValue(ContractMediaTypes.MessagePack);
+        content.Headers.ContentType = new MediaTypeHeaderValue(ContractHeaders.MessagePackMediaType);
         return content;
     }
 
-    private static ByteArrayContent Lz4Wrapped(byte[] plain, string mediaType)
+    private static async Task<HttpContent> Lz4Wrap(byte[] plain, string mediaType)
     {
-        var content = new ByteArrayContent(ContractLz4.Compress(plain));
+        await using var ms = new MemoryStream();
+        {
+            await using var encoder = LZ4Stream.Encode(ms);
+            await encoder.WriteAsync(plain);
+        }
+        var content = new ByteArrayContent(ms.ToArray());
         content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
-        content.Headers.TryAddWithoutValidation(ContractLz4.HeaderName, ContractLz4.HeaderValue);
+        content.Headers.TryAddWithoutValidation(ContractHeaders.XContentEncodingHeader, ContractHeaders.XContentEncodingHeaderLz4);
         return content;
+    }
+
+    private static async Task<byte[]> Lz4Unwrap(byte[] compressed)
+    {
+        await using var ms = new MemoryStream(compressed, false);
+        await using var decoder = LZ4Stream.Decode(ms);
+        await using var msOut = new MemoryStream();
+        await decoder.CopyToAsync(msOut);
+        return msOut.ToArray();
     }
 
     private static string Sha256Hex(byte[] data)
@@ -1432,7 +1821,7 @@ public partial class Test : ComponentBase
         {
             using var response = await client.GetAsync("/api/test/compressed-stream");
             var materialized = await MaterializeResponseAsync(response);
-            var plain = ContractLz4.Decompress(materialized.Body);
+            var plain = await Lz4Unwrap(materialized.Body);
 
             var expected = Enumerable.Range(0, 256).Select(i => (byte)i).ToArray();
             var pass = materialized.Status == 200
@@ -1448,7 +1837,7 @@ public partial class Test : ComponentBase
         {
             using var response = await client.GetAsync("/api/test/compressed-bytes");
             var materialized = await MaterializeResponseAsync(response);
-            var plain = ContractLz4.Decompress(materialized.Body);
+            var plain = await Lz4Unwrap(materialized.Body);
 
             var pass = materialized.Status == 200
                 && materialized.ContentType == "application/octet-stream"
@@ -1464,7 +1853,7 @@ public partial class Test : ComponentBase
         {
             using var response = await client.GetAsync("/api/test/compressed-envelope?Echo=wire-lz4");
             var materialized = await MaterializeResponseAsync(response);
-            var plain = ContractLz4.Decompress(materialized.Body);
+            var plain = await Lz4Unwrap(materialized.Body);
             var (status, error, data) = ParseJsonEnvelope(plain);
 
             var pass = materialized.Status == 200
@@ -1500,12 +1889,12 @@ public partial class Test : ComponentBase
             var json = """{"Message":"wire-compressed"}""";
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/compress/echo")
             {
-                Content = Lz4Wrapped(Encoding.UTF8.GetBytes(json), ContractMediaTypes.Json)
+                Content = await Lz4Wrap(Encoding.UTF8.GetBytes(json), ContractHeaders.JsonMediaType)
             };
             using var response = await client.SendAsync(request);
             var materialized = await MaterializeResponseAsync(response);
 
-            var (status, error, data) = ParseJsonEnvelope(ContractLz4.Decompress(materialized.Body));
+            var (status, error, data) = ParseJsonEnvelope(await Lz4Unwrap(materialized.Body));
 
             var pass = materialized.Status == 200
                 && materialized.Lz4
@@ -1551,12 +1940,12 @@ public partial class Test : ComponentBase
             var contract = new MessagePackCompressContract { Seed = 9, Days = 2, City = "WireLz4" };
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/msgpack/compress")
             {
-                Content = Lz4Wrapped(BlazorContractsMessagePack.Serialize(contract), ContractMediaTypes.MessagePack)
+                Content = await Lz4Wrap(BlazorContractsMessagePack.Serialize(contract), ContractHeaders.MessagePackMediaType)
             };
             using var response = await client.SendAsync(request);
             var materialized = await MaterializeResponseAsync(response);
 
-            await using var decoder = ContractLz4.CreateDecoderStream(new MemoryStream(materialized.Body));
+            await using var decoder = LZ4Stream.Decode(new MemoryStream(materialized.Body));
             var envelope = await BlazorContractsMessagePack.DeserializeAsync<ContractResult<MessagePackWeatherForecast>>(decoder);
 
             var pass = materialized.Status == 200
@@ -1603,7 +1992,7 @@ public partial class Test : ComponentBase
 
             using var multipart = new MultipartFormDataContent("wire-boundary-" + Guid.NewGuid().ToString("N"));
             multipart.Add(JsonContent("{}"), "TestUploadCombinedContract");
-            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractMediaTypes.Binary), "Data", "Data.bin");
+            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "Data", "Data.bin");
             multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file1), "w1.txt", "text/plain", file1.Length)), "File1", "w1.txt");
             multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file2), "w2.txt", "text/plain", file2.Length)), "File2", "w2.txt");
 
@@ -1630,13 +2019,13 @@ public partial class Test : ComponentBase
             var payload = Enumerable.Range(0, 2048).Select(i => (byte)(i % 251)).ToArray();
 
             using var multipart = new MultipartFormDataContent("wire-lz4-boundary-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(Lz4Wrapped(Encoding.UTF8.GetBytes("""{"FileName":"wire-lz4.bin"}"""), ContractMediaTypes.Json), "TestCompressBinaryContract");
-            multipart.Add(Lz4Wrapped(payload, ContractMediaTypes.Binary), "Content", "Content.bin");
+            multipart.Add(await Lz4Wrap(Encoding.UTF8.GetBytes("""{"FileName":"wire-lz4.bin"}"""), ContractHeaders.JsonMediaType), "TestCompressBinaryContract");
+            multipart.Add(await Lz4Wrap(payload, ContractHeaders.OctetStreamMediaType), "Content", "Content.bin");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/compress/binary") { Content = multipart };
             using var response = await client.SendAsync(request);
             var materialized = await MaterializeResponseAsync(response);
-            var plain = ContractLz4.Decompress(materialized.Body);
+            var plain = await Lz4Unwrap(materialized.Body);
 
             var expected = "echo:"u8.ToArray().Concat(payload).ToArray();
             var pass = materialized.Status == 200
@@ -1661,7 +2050,7 @@ public partial class Test : ComponentBase
 
             using var multipart = new MultipartFormDataContent("wire-mp-boundary-" + Guid.NewGuid().ToString("N"));
             multipart.Add(MsgpackContent(BlazorContractsMessagePack.Serialize(contract)), "MessagePackStreamUploadContract", "MessagePackStreamUploadContract.msgpack");
-            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractMediaTypes.Binary), "Content", "wire-mp.bin");
+            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractHeaders.OctetStreamMediaType), "Content", "wire-mp.bin");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/msgpack/stream-upload") { Content = multipart };
             using var response = await client.SendAsync(request);
@@ -1688,7 +2077,7 @@ public partial class Test : ComponentBase
 
             using var multipart = new MultipartFormDataContent("wire-up-boundary-" + Guid.NewGuid().ToString("N"));
             multipart.Add(JsonContent("""{"FileName":"wire-raw.bin","MediaType":"application/octet-stream"}"""), "FileUploadBytesContract");
-            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractMediaTypes.Binary), "Content", "Content.bin");
+            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractHeaders.OctetStreamMediaType), "Content", "Content.bin");
 
             using var upload = new HttpRequestMessage(HttpMethod.Post, "/api/files/bytes") { Content = multipart };
             var uploadResponse = await client.SendAsync(upload);
@@ -1810,7 +2199,7 @@ public partial class Test : ComponentBase
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/post-simple")
             {
-                Content = Lz4Wrapped(Encoding.UTF8.GetBytes("""{"Number":12,"Seed":3}"""), ContractMediaTypes.Json)
+                Content = await Lz4Wrap(Encoding.UTF8.GetBytes("""{"Number":12,"Seed":3}"""), ContractHeaders.JsonMediaType)
             };
             var materialized = await MaterializeResponseAsync(await client.SendAsync(request));
             var (status, _, data) = ParseJsonEnvelope(materialized.Body);
@@ -1871,7 +2260,7 @@ public partial class Test : ComponentBase
 
             using var multipart = new MultipartFormDataContent("mis-3-" + Guid.NewGuid().ToString("N"));
             multipart.Add(MsgpackContent(BlazorContractsMessagePack.Serialize(contract)), "TestUploadCombinedContract");
-            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractMediaTypes.Binary), "Data", "Data.bin");
+            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "Data", "Data.bin");
             multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file1), "m1.txt", "text/plain", file1.Length)), "File1", "m1.txt");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/upload/combined") { Content = multipart };
@@ -1898,7 +2287,7 @@ public partial class Test : ComponentBase
 
             using var multipart = new MultipartFormDataContent("mis-4-" + Guid.NewGuid().ToString("N"));
             multipart.Add(barePart, "TestUploadCombinedContract");
-            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractMediaTypes.Binary), "Data", "Data.bin");
+            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "Data", "Data.bin");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/upload/combined") { Content = multipart };
             var materialized = await MaterializeResponseAsync(await client.SendAsync(request));

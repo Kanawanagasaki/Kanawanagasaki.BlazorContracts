@@ -123,6 +123,14 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                                     if (streamDataProperty is not null)
                                         typeInfo.Properties.Remove(streamDataProperty);
                                 }
+                                if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>))
+                                {
+                                    var fileDataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                        property.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)
+                                        || (property.AttributeProvider is System.Reflection.PropertyInfo fileDataClrProperty && fileDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)));
+                                    if (fileDataProperty is not null)
+                                        typeInfo.Properties.Remove(fileDataProperty);
+                                }
                             }
                         }
                     }
@@ -300,7 +308,9 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     return;
                 """);
 
-            if (item.Contract.IsStreamReturnType || (item.Contract.IsByteArrayReturnType && !item.Contract.IsMessagePack))
+            if (item.Contract.IsContractFileReturnType)
+                GenerateContractFileResponse(iw, item.Contract);
+            else if (item.Contract.IsStreamReturnType || (item.Contract.IsByteArrayReturnType && !item.Contract.IsMessagePack))
                 GenerateBinaryResponse(iw, item.Contract);
             else
                 GenerateEnvelopeResponse(iw, item.Contract);
@@ -322,7 +332,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     {
                         foreach (var disposable in toDispose)
                         {
-                            if(disposable is System.IAsyncDisposable asyncDisposable)
+                            if (disposable is System.IAsyncDisposable asyncDisposable)
                                 await asyncDisposable.DisposeAsync();
                             else
                                 disposable.Dispose();
@@ -366,7 +376,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         if (contract.HasBinaryProperty)
         {
             iw.WriteLineAndIncrease($$"""
-                if (Kanawanagasaki.BlazorContracts.ContractMediaTypes.IsMultipart(httpRequest.ContentType))
+                if ({{Constants.ContractHeadersFullName}}.IsMultipart(httpRequest.ContentType))
                 {
                     {{Constants.ContractMultipartPartFullName}}? contractPart = null;
                 """);
@@ -420,7 +430,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 {
                     try
                     {
-                        if (Kanawanagasaki.BlazorContracts.ContractMediaTypes.IsMessagePack(contractPart.ContentType))
+                        if ({{Constants.ContractHeadersFullName}}.IsMessagePack(contractPart.ContentType))
                             contract = await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.DeserializeAsync<{{contract.FullyQualifiedName}}>(contractPart.Stream, ct);
                         else
                             contract = await System.Text.Json.JsonSerializer.DeserializeAsync<{{contract.FullyQualifiedName}}>(contractPart.Stream, _jsonOptions, ct);
@@ -464,7 +474,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 {
                     iw.WriteLine($$"""
                         var binary{{prop.Name}}Filename = binary{{prop.Name}}Part.FileName ?? binary{{prop.Name}}Part.Name ?? System.Guid.NewGuid().ToString("N");
-                        var binary{{prop.Name}}ContentType = binary{{prop.Name}}Part.ContentType ?? {{Constants.ContractMediaTypesFullName}}.Binary;
+                        var binary{{prop.Name}}ContentType = binary{{prop.Name}}Part.ContentType ?? {{Constants.ContractHeadersFullName}}.OctetStreamMediaType;
                         var binary{{prop.Name}}File = new {{Constants.ContractFileFullName}}(binary{{prop.Name}}Part.Stream, binary{{prop.Name}}Filename, binary{{prop.Name}}ContentType, binary{{prop.Name}}Part.Length);
                         toDispose.Add(binary{{prop.Name}}Part);
                         if (contract is not null)
@@ -481,13 +491,11 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         }
 
         iw.WriteLine($$"""
-            var isCompressed = httpRequest.Headers.TryGetValue(Kanawanagasaki.BlazorContracts.ContractLz4.HeaderName, out var encodingValues)
-                && encodingValues.Any(Kanawanagasaki.BlazorContracts.ContractLz4.IsLz4);
-            if (Kanawanagasaki.BlazorContracts.ContractMediaTypes.IsMessagePack(httpRequest.ContentType))
+            if ({{Constants.ContractHeadersFullName}}.IsMessagePack(httpRequest.ContentType))
             {
-                if (isCompressed)
+                if ({{Constants.ContractHeadersFullName}}.IsLz4(httpRequest.Headers))
                 {
-                    await using var contractCompressed = Kanawanagasaki.BlazorContracts.ContractLz4.CreateDecoderStream(httpRequest.Body, true);
+                    await using var contractCompressed = K4os.Compression.LZ4.Streams.LZ4Stream.Decode(httpRequest.Body, leaveOpen: true);
                     contract = await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.DeserializeAsync<{{contract.FullyQualifiedName}}>(contractCompressed, ct);
                 }
                 else
@@ -495,11 +503,11 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     contract = await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.DeserializeAsync<{{contract.FullyQualifiedName}}>(httpRequest.Body, ct);
                 }
             }
-            else if (Kanawanagasaki.BlazorContracts.ContractMediaTypes.IsJson(httpRequest.ContentType))
+            else if ({{Constants.ContractHeadersFullName}}.IsJson(httpRequest.ContentType))
             {
-                if (isCompressed)
+                if ({{Constants.ContractHeadersFullName}}.IsLz4(httpRequest.Headers))
                 {
-                    await using var contractCompressed = Kanawanagasaki.BlazorContracts.ContractLz4.CreateDecoderStream(httpRequest.Body, true);
+                    await using var contractCompressed = K4os.Compression.LZ4.Streams.LZ4Stream.Decode(httpRequest.Body, leaveOpen: true);
                     contract = await System.Text.Json.JsonSerializer.DeserializeAsync<{{contract.FullyQualifiedName}}>(contractCompressed, _jsonOptions, ct);
                 }
                 else
@@ -559,12 +567,11 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         if (contract.IsCompressed)
         {
             iw.WriteLine($$"""
-                httpResponse.Headers[Kanawanagasaki.BlazorContracts.ContractLz4.HeaderName] = Kanawanagasaki.BlazorContracts.ContractLz4.HeaderValue;
-                await using var {{resultVarName}}Compressor = Kanawanagasaki.BlazorContracts.ContractLz4.CreateEncoderStream(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true);
-                {{(contract.IsMessagePack
-                ? $"await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync({resultVarName}Compressor, {resultVarName}, ct);"
-                : $"await System.Text.Json.JsonSerializer.SerializeAsync({resultVarName}Compressor, {resultVarName}, _jsonOptions, ct);")}}
-                await {{resultVarName}}Compressor.FlushAsync(ct);
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentEncodingHeader] = {{Constants.ContractHeadersFullName}}.XContentEncodingHeaderLz4;
+                await using (var {{resultVarName}}Compressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsMessagePack
+                    ? $"await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync({resultVarName}Compressor, {resultVarName}, ct);"
+                    : $"await System.Text.Json.JsonSerializer.SerializeAsync({resultVarName}Compressor, {resultVarName}, _jsonOptions, ct);")}}
                 """);
         }
         else
@@ -578,17 +585,16 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
     private static void GenerateEnvelopeResponse(IndentedTextWriter iw, ContractMetadata contract)
     {
-        iw.WriteLine($"httpResponse.ContentType = Kanawanagasaki.BlazorContracts.ContractMediaTypes.{(contract.IsMessagePack ? "MessagePack" : "JsonCharset")};");
+        iw.WriteLine($"httpResponse.ContentType = {Constants.ContractHeadersFullName}.{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")};");
 
         if (contract.IsCompressed)
         {
             iw.WriteLine($$"""
-                httpResponse.Headers[Kanawanagasaki.BlazorContracts.ContractLz4.HeaderName] = Kanawanagasaki.BlazorContracts.ContractLz4.HeaderValue;
-                await using var contractCompressor = Kanawanagasaki.BlazorContracts.ContractLz4.CreateEncoderStream(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true);
-                {{(contract.IsMessagePack
-                ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(contractCompressor, result, ct);"
-                : "await System.Text.Json.JsonSerializer.SerializeAsync(contractCompressor, result, _jsonOptions, ct);")}}
-                await contractCompressor.FlushAsync(ct);
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentEncodingHeader] = {{Constants.ContractHeadersFullName}}.XContentEncodingHeaderLz4;
+                await using (var contractCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsMessagePack
+                    ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(contractCompressor, result, ct);"
+                    : "await System.Text.Json.JsonSerializer.SerializeAsync(contractCompressor, result, _jsonOptions, ct);")}}
                 """);
         }
         else
@@ -618,7 +624,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 httpResponse.ContentType = $"multipart/related; boundary=\"{boundary}\"";
                 await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
                     $"--{boundary}\r\n" +
-                    $"Content-Type: {Kanawanagasaki.BlazorContracts.ContractMediaTypes.{{(contract.IsMessagePack ? "MessagePack" : "JsonCharset")}}}\r\n" +
+                    $"Content-Type: {{{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}}}\r\n" +
                     $"Content-Disposition: form-data; name=\"{{contract.Name}}\"\r\n" +
             """);
         if (contract.IsCompressed)
@@ -634,11 +640,10 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         if (contract.IsCompressed)
         {
             iw.WriteLine($$"""
-                await using var contractCompressor = Kanawanagasaki.BlazorContracts.ContractLz4.CreateEncoderStream(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true);
-                {{(contract.IsMessagePack
-                ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(contractCompressor, result, ct);"
-                : "await System.Text.Json.JsonSerializer.SerializeAsync(contractCompressor, result, _jsonOptions, ct);")}}
-                await contractCompressor.FlushAsync(ct);
+                await using (var contractCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsMessagePack
+                    ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(contractCompressor, result, ct);"
+                    : "await System.Text.Json.JsonSerializer.SerializeAsync(contractCompressor, result, _jsonOptions, ct);")}}
                 """);
         }
         else
@@ -652,7 +657,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         iw.WriteLine($$"""
             await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
                 $"\r\n--{boundary}\r\n" +
-                $"Content-Type: {Kanawanagasaki.BlazorContracts.ContractMediaTypes.Binary}\r\n" +
+                $"Content-Type: {{{Constants.ContractHeadersFullName}}.OctetStreamMediaType}\r\n" +
                 $"Content-Disposition: form-data; name=\"Data\";\r\n" +
                 $"Content-Transfer-Encoding: binary\r\n" +
             """);
@@ -669,11 +674,10 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         if (contract.IsCompressed)
         {
             iw.WriteLine($$"""
-                await using var streamCompressor = Kanawanagasaki.BlazorContracts.ContractLz4.CreateEncoderStream(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true);
-                {{(contract.IsStreamReturnType
-                ? "await result.Data.CopyToAsync(streamCompressor, ct);"
-                : "await streamCompressor.WriteAsync(result.Data, ct);")}}
-                await streamCompressor.FlushAsync(ct);
+                await using (var streamCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsStreamReturnType
+                    ? "await result.Data.CopyToAsync(streamCompressor, ct);"
+                    : "await streamCompressor.WriteAsync(result.Data, ct);")}}
                 """);
         }
         else
@@ -690,21 +694,20 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
         iw.DecreaseAndWriteLine("}");
 
-        iw.WriteLineAndIncrease("""
+        iw.WriteLineAndIncrease($$"""
             else if (result.Data is not null)
             {
-                httpResponse.ContentType = Kanawanagasaki.BlazorContracts.ContractMediaTypes.Binary;
+                httpResponse.ContentType = {{Constants.ContractHeadersFullName}}.OctetStreamMediaType;
             """);
 
         if (contract.IsCompressed)
         {
             iw.WriteLine($$"""
-                httpResponse.Headers[Kanawanagasaki.BlazorContracts.ContractLz4.HeaderName] = Kanawanagasaki.BlazorContracts.ContractLz4.HeaderValue;
-                await using var streamCompressor = Kanawanagasaki.BlazorContracts.ContractLz4.CreateEncoderStream(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true);
-                {{(contract.IsStreamReturnType
-                ? "await result.Data.CopyToAsync(streamCompressor, ct);"
-                : "await streamCompressor.WriteAsync(result.Data, ct);")}}
-                await streamCompressor.FlushAsync(ct);
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentEncodingHeader] = {{Constants.ContractHeadersFullName}}.XContentEncodingHeaderLz4;
+                await using (var streamCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsStreamReturnType
+                    ? "await result.Data.CopyToAsync(streamCompressor, ct);"
+                    : "await streamCompressor.WriteAsync(result.Data, ct);")}}
                 """);
         }
         else
@@ -720,18 +723,17 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         iw.WriteLineAndIncrease($$"""
             else
             {
-                httpResponse.ContentType = Kanawanagasaki.BlazorContracts.ContractMediaTypes.{{(contract.IsMessagePack ? "MessagePack" : "JsonCharset")}};
+                httpResponse.ContentType = {{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}};
             """);
 
         if (contract.IsCompressed)
         {
             iw.WriteLine($$"""
-                httpResponse.Headers[Kanawanagasaki.BlazorContracts.ContractLz4.HeaderName] = Kanawanagasaki.BlazorContracts.ContractLz4.HeaderValue;
-                await using var contractCompressor = Kanawanagasaki.BlazorContracts.ContractLz4.CreateEncoderStream(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true);
-                {{(contract.IsMessagePack
-                ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(contractCompressor, result, ct);"
-                : "await System.Text.Json.JsonSerializer.SerializeAsync(contractCompressor, result, _jsonOptions, ct);")}}
-                await contractCompressor.FlushAsync(ct);
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentEncodingHeader] = {{Constants.ContractHeadersFullName}}.XContentEncodingHeaderLz4;
+                await using (var contractCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsMessagePack
+                    ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(contractCompressor, result, ct);"
+                    : "await System.Text.Json.JsonSerializer.SerializeAsync(contractCompressor, result, _jsonOptions, ct);")}}
                 """);
         }
         else
@@ -741,6 +743,134 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             else
                 iw.WriteLine("await System.Text.Json.JsonSerializer.SerializeAsync(httpResponse.Body, result, _jsonOptions, ct);");
         }
+
+        iw.DecreaseAndWriteLine("}");
+    }
+
+    private static void GenerateContractFileResponse(IndentedTextWriter iw, ContractMetadata contract)
+    {
+        iw.WriteLineAndIncrease($$"""
+            if (result.Data is not null && result.ErrorMessage is not null)
+            {
+                var boundary = "boundary" + System.Guid.NewGuid().ToString("N");
+                httpResponse.ContentType = $"multipart/related; boundary=\"{boundary}\"";
+                await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
+                    $"--{boundary}\r\n" +
+                    $"Content-Type: {{{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}}}\r\n" +
+                    $"Content-Disposition: form-data; name=\"{{contract.Name}}\"\r\n" +
+            """);
+        if (contract.IsCompressed)
+        {
+            iw.WriteLine("""
+                    "X-Content-Encoding: lz4\r\n" +
+                """);
+        }
+        iw.WriteLine("""
+                "\r\n"), ct);
+            """);
+
+        if (contract.IsCompressed)
+        {
+            iw.WriteLine($$"""
+                await using (var envelopeCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsMessagePack
+                    ? "await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(envelopeCompressor, result, ct);"
+                    : "await System.Text.Json.JsonSerializer.SerializeAsync(envelopeCompressor, result, _jsonOptions, ct);")}}
+                """);
+        }
+        else
+        {
+            if (contract.IsMessagePack)
+                iw.WriteLine("await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(httpResponse.Body, result, ct);");
+            else
+                iw.WriteLine("await System.Text.Json.JsonSerializer.SerializeAsync(httpResponse.Body, result, _jsonOptions, ct);");
+        }
+
+        iw.WriteLine($$"""
+            await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
+                $"\r\n--{boundary}\r\n" +
+                $"Content-Type: {result.Data.MediaType}\r\n" +
+                $"Content-Disposition: {{{Constants.ContractHeadersFullName}}.CreateAttachmentDisposition(result.Data.FileName)}\r\n" +
+            """);
+        if (contract.IsCompressed)
+        {
+            iw.WriteLine($$"""
+                    "X-Content-Encoding: lz4\r\n" +
+                    (0 < result.Data.Length ? $"{{{Constants.ContractHeadersFullName}}.XOriginalSizeHeader}: {result.Data.Length}\r\n" : "") +
+                """);
+        }
+        else
+        {
+            iw.WriteLine("""
+                    (0 < result.Data.Length ? $"Content-Length: {result.Data.Length}\r\n" : "") +
+                """);
+        }
+        iw.WriteLine("""
+                "\r\n"), ct);
+            """);
+
+        if (contract.IsCompressed)
+        {
+            iw.WriteLine($$"""
+                if (result.Data.Stream.CanSeek)
+                    result.Data.Stream.Position = 0;
+                await using (var streamCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    await result.Data.Stream.CopyToAsync(streamCompressor, ct);
+                """);
+        }
+        else
+        {
+            iw.WriteLine("""
+                if (result.Data.Stream.CanSeek)
+                    result.Data.Stream.Position = 0;
+                await result.Data.Stream.CopyToAsync(httpResponse.Body, ct);
+                """);
+        }
+
+        iw.WriteLine("""
+            await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"\r\n--{boundary}--\r\n"), ct);
+            """);
+
+        iw.DecreaseAndWriteLine("}");
+
+        iw.WriteLineAndIncrease($$"""
+            else if (result.Data is not null)
+            {
+                httpResponse.ContentType = result.Data.MediaType ?? {{Constants.ContractHeadersFullName}}.OctetStreamMediaType;
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.ContentDispositionHeader] = {{Constants.ContractHeadersFullName}}.CreateAttachmentDisposition(result.Data.FileName);
+            """);
+
+        if (contract.IsCompressed)
+        {
+            iw.WriteLine($$"""
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentEncodingHeader] = {{Constants.ContractHeadersFullName}}.XContentEncodingHeaderLz4;
+                if(0 < result.Data.Length)
+                    httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XOriginalSizeHeader] = result.Data.Length.ToString();
+                if (result.Data.Stream.CanSeek)
+                    result.Data.Stream.Position = 0;
+                await using (var fileCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    await result.Data.Stream.CopyToAsync(fileCompressor, ct);
+                """);
+        }
+        else
+        {
+            iw.WriteLine("""
+                if (0 < result.Data.Length)
+                    httpResponse.ContentLength = result.Data.Length;
+                if (result.Data.Stream.CanSeek)
+                    result.Data.Stream.Position = 0;
+                await result.Data.Stream.CopyToAsync(httpResponse.Body, ct);
+                """);
+        }
+
+        iw.DecreaseAndWriteLine("}");
+
+        iw.WriteLineAndIncrease("""
+            else
+            {
+            """);
+
+        GenerateEnvelopeResponse(iw, contract);
 
         iw.DecreaseAndWriteLine("}");
     }

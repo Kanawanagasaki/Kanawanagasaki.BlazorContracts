@@ -15,6 +15,7 @@ public class ContractMetadata
     public bool IsReturning { get; }
     public bool IsByteArrayReturnType { get; }
     public bool IsStreamReturnType { get; }
+    public bool IsContractFileReturnType { get; }
     public bool IsDisposableReturnType { get; }
     public string? ReturnFullyQualifiedName { get; }
 
@@ -70,6 +71,8 @@ public class ContractMetadata
                 IsByteArrayReturnType = true;
             else if (iface.TypeArguments[0].ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(Stream).FullName)
                 IsStreamReturnType = true;
+            else if (iface.TypeArguments[0].ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.ContractFileFullName)
+                IsContractFileReturnType = true;
 
             if (iface.TypeArguments[0].AllInterfaces.Any(x
                 => x.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(IDisposable).FullName
