@@ -196,10 +196,22 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
             foreach (var routePart in routeParts)
             {
-                var routeToString = metadata.Properties.TryGetValue(routePart, out var routeProp)
-                    ? routeProp.FormatToString($"contract.{routePart}")
-                    : $"contract.{routePart}.ToString()";
-                endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Uri.EscapeDataString({routeToString})}}");
+                if (!metadata.Properties.TryGetValue(routePart, out var routeProp))
+                {
+                    endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Uri.EscapeDataString(contract.{routePart}.ToString())}}");
+                    continue;
+                }
+
+                if (routeProp.IsNullableT)
+                {
+                    var routeToString = $"contract.{routePart} is not null ? {routeProp.FormatToString($"contract.{routePart}.Value")} : string.Empty";
+                    endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Uri.EscapeDataString({routeToString})}}");
+                }
+                else
+                {
+                    var routeToString = routeProp.FormatToString($"contract.{routePart}");
+                    endpoint = endpoint.Replace($"{{{routePart}}}", $"{{System.Uri.EscapeDataString({routeToString})}}");
+                }
             }
 
             var hasQuery = false;

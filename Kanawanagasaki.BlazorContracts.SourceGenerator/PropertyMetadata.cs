@@ -13,6 +13,17 @@ public class PropertyMetadata
     public bool IsNullable { get; }
     public bool IsRequired { get; }
 
+    public Location? Location { get; }
+
+    public bool IsNullableT { get; }
+    public string NonNullableTypeName { get; } = string.Empty;
+
+    public bool IsString { get; }
+    public bool IsEnum { get; }
+    public bool IsParsable { get; }
+
+    public bool IsRouteParamSupported => IsString || IsEnum || IsParsable;
+
     public bool HasPublicSetter { get; }
     public bool IsInitOnly { get; }
     public bool HasBackingField { get; }
@@ -23,13 +34,14 @@ public class PropertyMetadata
 
     private static readonly HashSet<string> FormattableInterfaceNames =
     [
-        "IFormattable", "ISpanFormattable", "IUtf8SpanFormattable"
+        "System.IFormattable", "System.ISpanFormattable", "System.IUtf8SpanFormattable"
     ];
 
     public PropertyMetadata(IPropertySymbol propSymb)
     {
         Name = propSymb.Name;
         FullyQualifiedName = propSymb.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS);
+        Location = propSymb.Locations.FirstOrDefault();
 
         IsByteArray = propSymb.Type is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(byte).FullName;
         IsContractFile = propSymb.Type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == "Kanawanagasaki.BlazorContracts.ContractFile";
@@ -50,11 +62,30 @@ public class PropertyMetadata
             ? nullableType.TypeArguments[0]
             : propSymb.Type;
 
-        IsFormattable = typeToCheck.AllInterfaces.Any(x => FormattableInterfaceNames.Contains(x.Name));
+        IsFormattable = typeToCheck.AllInterfaces.Any(x => FormattableInterfaceNames.Contains(x.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT)));
+
+        IsNullableT = propSymb.Type is INamedTypeSymbol nullablePropType
+            && nullablePropType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
+        if (IsNullableT)
+            NonNullableTypeName = typeToCheck.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS);
+        else
+            NonNullableTypeName = FullyQualifiedName;
+
+        IsString = typeToCheck.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(string).FullName;
+        IsEnum = typeToCheck.TypeKind == TypeKind.Enum;
+        if (!IsString && !IsEnum)
+        {
+            IsParsable = typeToCheck.AllInterfaces.Any(x
+                => x.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == "System.IParsable"
+                    && x.TypeArguments.Length == 1
+                    && SymbolEqualityComparer.Default.Equals(x.TypeArguments[0], typeToCheck));
+        }
     }
 
     public string FormatToString(string accessExpression)
-        => IsFormattable
+        => IsEnum
+            ? $"{accessExpression}.ToString()"
+            : IsFormattable
             ? $"{accessExpression}.ToString(null, System.Globalization.CultureInfo.InvariantCulture)"
             : $"{accessExpression}.ToString()";
 

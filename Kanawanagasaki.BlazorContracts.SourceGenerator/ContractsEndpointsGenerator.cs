@@ -8,6 +8,14 @@ using System.Collections.Immutable;
 [Generator]
 public class ContractsEndpointsGenerator : IIncrementalGenerator
 {
+    private static readonly DiagnosticDescriptor s_unsupportedRouteParamType = new(
+        id: "KBC2004",
+        title: "Unsupported route parameter type",
+        messageFormat: "Route parameter of type '{0}' is not supported. Supported types: System.String, System.Enum, type implementing System.IParsable<{0}>.",
+        category: "BlazorContracts",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var config = context.AnalyzerConfigOptionsProvider.Select((options, _) =>
@@ -115,6 +123,14 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                                     if (dataProperty is not null)
                                         typeInfo.Properties.Remove(dataProperty);
                                 }
+                                if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.DisposableContractResult<byte[]>))
+                                {
+                                    var dataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                        property.Name == nameof(Kanawanagasaki.BlazorContracts.DisposableContractResult<byte[]>.Data)
+                                        || (property.AttributeProvider is System.Reflection.PropertyInfo dataClrProperty && dataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<byte[]>.Data)));
+                                    if (dataProperty is not null)
+                                        typeInfo.Properties.Remove(dataProperty);
+                                }
                                 if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.ContractResult<{{typeof(Stream).FullName}}>))
                                 {
                                     var streamDataProperty = typeInfo.Properties.FirstOrDefault(property =>
@@ -123,10 +139,26 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                                     if (streamDataProperty is not null)
                                         typeInfo.Properties.Remove(streamDataProperty);
                                 }
+                                if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>))
+                                {
+                                    var streamDataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                        property.Name == nameof(Kanawanagasaki.BlazorContracts.DisposableContractResult<{{typeof(Stream).FullName}}>.Data)
+                                        || (property.AttributeProvider is System.Reflection.PropertyInfo streamDataClrProperty && streamDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<{{typeof(Stream).FullName}}>.Data)));
+                                    if (streamDataProperty is not null)
+                                        typeInfo.Properties.Remove(streamDataProperty);
+                                }
                                 if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>))
                                 {
                                     var fileDataProperty = typeInfo.Properties.FirstOrDefault(property =>
                                         property.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)
+                                        || (property.AttributeProvider is System.Reflection.PropertyInfo fileDataClrProperty && fileDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)));
+                                    if (fileDataProperty is not null)
+                                        typeInfo.Properties.Remove(fileDataProperty);
+                                }
+                                if(typeInfo.Type == typeof(Kanawanagasaki.BlazorContracts.DisposableContractResult<Kanawanagasaki.BlazorContracts.ContractFile>))
+                                {
+                                    var fileDataProperty = typeInfo.Properties.FirstOrDefault(property =>
+                                        property.Name == nameof(Kanawanagasaki.BlazorContracts.DisposableContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)
                                         || (property.AttributeProvider is System.Reflection.PropertyInfo fileDataClrProperty && fileDataClrProperty.Name == nameof(Kanawanagasaki.BlazorContracts.ContractResult<Kanawanagasaki.BlazorContracts.ContractFile>.Data)));
                                     if (fileDataProperty is not null)
                                         typeInfo.Properties.Remove(fileDataProperty);
@@ -145,6 +177,45 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         bool isFirst = true;
         foreach (var item in list)
         {
+            var routeParts = item.Contract.Endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+                .Where(x => 2 < x.Length && x[0] == '{' && x[x.Length - 1] == '}')
+                .Select(x => x.Substring(1, x.Length - 2))
+                .ToArray();
+
+            var propertyIndex = new Dictionary<string, int>();
+            {
+                var seq = 0;
+                foreach (var propKey in item.Contract.Properties.Keys)
+                    propertyIndex[propKey] = ++seq;
+            }
+
+            string valueIdentFor(string propName)
+            {
+                if (!propertyIndex.TryGetValue(propName, out var vidx))
+                    return propName;
+                if (0 <= routeParts.IndexOf(propName))
+                    return "parsedValue" + vidx;
+                if (item.Contract.Properties[propName].IsRouteParamSupported)
+                    return "parsedQuery" + vidx;
+                return "fromQuery" + vidx;
+            }
+
+            var unsupportedRouteParam = false;
+            foreach (var routePart in routeParts)
+            {
+                if (!item.Contract.Properties.TryGetValue(routePart, out var checkProp))
+                    continue;
+                if (checkProp.IsRouteParamSupported)
+                    continue;
+                unsupportedRouteParam = true;
+                context.ReportDiagnostic(Diagnostic.Create(
+                    s_unsupportedRouteParamType,
+                    checkProp.Location,
+                    checkProp.NonNullableTypeName));
+            }
+            if (unsupportedRouteParam)
+                continue;
+
             var isGetOrDelete = item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete";
             var isPostOrPut = item.Contract.VerbStr == "Post" || item.Contract.VerbStr == "Put";
 
@@ -161,13 +232,9 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     Microsoft.AspNetCore.Http.HttpResponse httpResponse,
                 """);
 
-            var routeParts = item.Contract.Endpoint.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
-                .Where(x => 2 < x.Length && x[0] == '{' && x[x.Length - 1] == '}')
-                .Select(x => x.Substring(1, x.Length - 2))
-                .ToArray();
             foreach (var routePart in routeParts)
-                if (item.Contract.Properties.TryGetValue(routePart, out var prop))
-                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute] {prop.FullyQualifiedName} {routePart},");
+                if (item.Contract.Properties.TryGetValue(routePart, out _))
+                    iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromRoute(Name = \"{routePart}\")] System.String fromRoute{propertyIndex[routePart]},");
 
             foreach (var (injectedServiceType, injectedServiceIndex) in item.HandlerInjectedServicesTypes)
                 iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromServices] {injectedServiceType} injectedService{injectedServiceIndex},");
@@ -181,16 +248,17 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     if (0 <= routeParts.IndexOf(kv.Key))
                         continue;
 
-                    if (kv.Value.JsonPropertyName is null)
-                        iw.WriteLine(kv.Value.IsReferenceType
-                            ? $"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key} = default!,"
-                            : $"[Microsoft.AspNetCore.Mvc.FromQuery] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
+                    var queryIdent = "fromQuery" + propertyIndex[kv.Key];
+                    var queryName = (kv.Value.JsonPropertyName ?? kv.Key).Replace("\\", "\\\\").Replace("\"", "\\\"");
+                    if (kv.Value.IsRouteParamSupported)
+                    {
+                        iw.WriteLine($"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryName}\")] System.String {queryIdent} = default!,");
+                    }
                     else
                     {
-                        var queryKey = kv.Value.JsonPropertyName.Replace("\\", "\\\\").Replace("\"", "\\\"");
                         iw.WriteLine(kv.Value.IsReferenceType
-                            ? $"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key} = default!,"
-                            : $"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryKey}\")] {kv.Value.FullyQualifiedName} {kv.Key} = default,");
+                            ? $"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryName}\")] {kv.Value.FullyQualifiedName} {queryIdent} = default!,"
+                            : $"[Microsoft.AspNetCore.Mvc.FromQuery(Name = \"{queryName}\")] {kv.Value.FullyQualifiedName} {queryIdent} = default,");
                     }
                 }
             }
@@ -206,6 +274,20 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.WriteLine("try");
             iw.WriteLineAndIncrease("{");
 
+            if (0 < routeParts.Length)
+            {
+                foreach (var routePart in routeParts)
+                {
+                    if (!item.Contract.Properties.TryGetValue(routePart, out var routeProp))
+                        continue;
+
+                    if (!propertyIndex.TryGetValue(routePart, out var routeIdx))
+                        continue;
+
+                    GenerateRouteParamBinding(iw, item.Contract, $"fromRoute{routeIdx}", $"parsedValue{routeIdx}", routeProp);
+                }
+            }
+
             if (isGetOrDelete)
             {
                 foreach (var kv in item.Contract.Properties)
@@ -213,11 +295,28 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     if (0 <= routeParts.IndexOf(kv.Key))
                         continue;
 
+                    if (!kv.Value.IsRouteParamSupported)
+                        continue;
+
+                    var fromIdent = "fromQuery" + propertyIndex[kv.Key];
+                    var parsedIdent = "parsedQuery" + propertyIndex[kv.Key];
+                    var displayName = (kv.Value.JsonPropertyName ?? kv.Key).Replace("\\", "\\\\").Replace("\"", "\\\"");
+                    GenerateQueryStringParamBinding(iw, item.Contract, displayName, fromIdent, parsedIdent, kv.Value);
+                }
+
+                foreach (var kv in item.Contract.Properties)
+                {
+                    if (0 <= routeParts.IndexOf(kv.Key))
+                        continue;
+
+                    if (kv.Value.IsRouteParamSupported)
+                        continue;
+
                     if (!kv.Value.IsReferenceType || !kv.Value.IsRequired)
                         continue;
 
                     var requiredQueryKey = (kv.Value.JsonPropertyName ?? kv.Key).Replace("\\", "\\\\").Replace("\"", "\\\"");
-                    iw.WriteLine($"if ({kv.Key} is null)");
+                    iw.WriteLine($"if (fromQuery{propertyIndex[kv.Key]} is null)");
                     iw.WriteLineAndIncrease("{");
                     GenerateErrorResponse(iw, item.Contract
                         , "missingRequiredQueryParamResult"
@@ -238,7 +337,10 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                         var propName = propNames[i];
                         var isLast = i == propNames.Length - 1;
                         if (item.Contract.Properties[propName].HasPublicSetter)
-                            iw.WriteLine($"{propName} = {propName}{(isLast ? "" : ",")}");
+                        {
+                            var valueExpr = valueIdentFor(propName);
+                            iw.WriteLine($"{propName} = {valueExpr}{(isLast ? "" : ",")}");
+                        }
                     }
                     iw.DecreaseAndWriteLine("};");
                 }
@@ -253,7 +355,8 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     if (contractProp.HasPublicSetter)
                         continue;
 
-                    var getterOnlyAssignment = GetBackingFieldAssignmentStatement(item.Contract, contractProp, propName, unsafeAccessors);
+                    var getterOnlyValueExpr = valueIdentFor(propName);
+                    var getterOnlyAssignment = GetBackingFieldAssignmentStatement(item.Contract, contractProp, getterOnlyValueExpr, unsafeAccessors);
                     if (getterOnlyAssignment is not null)
                         iw.WriteLine(getterOnlyAssignment);
                 }
@@ -279,9 +382,12 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                         if (!item.Contract.Properties.TryGetValue(routePart, out var routeProp))
                             continue;
 
-                        var routeAssignment = GetBackingFieldAssignmentStatement(item.Contract, routeProp, routePart, unsafeAccessors);
-                        if (routeAssignment is not null)
-                            iw.WriteLine(routeAssignment);
+                        if (!propertyIndex.TryGetValue(routePart, out var putIdx))
+                            continue;
+
+                    var routeAssignment = GetBackingFieldAssignmentStatement(item.Contract, routeProp, "parsedValue" + putIdx, unsafeAccessors);
+                    if (routeAssignment is not null)
+                        iw.WriteLine(routeAssignment);
                     }
                 }
             }
@@ -363,6 +469,97 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         iw.DecreaseAndWriteLine("}");
 
         context.AddSource("ContractsEndpoints.g.cs", sw.ToString());
+    }
+
+    private static void GenerateRouteParamBinding(IndentedTextWriter iw, ContractMetadata contract, string routeStringIdent, string parsedVar, PropertyMetadata routeProp)
+    {
+        void WriteBadRouteValue()
+        {
+            iw.WriteLineAndIncrease("{");
+            GenerateErrorResponse(iw, contract
+                , "routeParamResult"
+                , "Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest"
+                , "The request contains an invalid value.");
+            iw.WriteLine("return;");
+            iw.DecreaseAndWriteLine("}");
+        }
+
+        if (routeProp.IsString)
+        {
+            iw.WriteLine($"{routeProp.FullyQualifiedName} {parsedVar} = {routeStringIdent};");
+            return;
+        }
+
+        if (routeProp.IsNullableT)
+        {
+            var tempVar = $"{parsedVar}Value";
+            iw.WriteLine($"{routeProp.FullyQualifiedName} {parsedVar} = default;");
+            iw.WriteLine($"if (!System.String.IsNullOrWhiteSpace({routeStringIdent}))");
+            iw.WriteLineAndIncrease("{");
+            iw.WriteLine($"{routeProp.NonNullableTypeName} {tempVar};");
+            iw.WriteLine(routeProp.IsEnum
+                ? $"if (!System.Enum.TryParse<{routeProp.NonNullableTypeName}>({routeStringIdent}, out {tempVar}))"
+                : $"if (!{routeProp.NonNullableTypeName}.TryParse({routeStringIdent}, out {tempVar}))");
+            WriteBadRouteValue();
+            iw.WriteLine($"{parsedVar} = {tempVar};");
+            iw.DecreaseAndWriteLine("}");
+            return;
+        }
+
+        iw.WriteLine($"{routeProp.FullyQualifiedName} {parsedVar};");
+        iw.WriteLine(routeProp.IsEnum
+            ? $"if (!System.Enum.TryParse<{routeProp.NonNullableTypeName}>({routeStringIdent}, out {parsedVar}))"
+            : $"if (!{routeProp.NonNullableTypeName}.TryParse({routeStringIdent}, out {parsedVar}))");
+        WriteBadRouteValue();
+    }
+
+    private static void GenerateQueryStringParamBinding(
+        IndentedTextWriter iw,
+        ContractMetadata contract,
+        string displayName,
+        string fromIdent,
+        string parsedIdent,
+        PropertyMetadata queryProp)
+    {
+        void WriteBadValue()
+        {
+            iw.WriteLineAndIncrease("{");
+            GenerateErrorResponse(iw, contract
+                , "queryParamResult"
+                , "Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest"
+                , "The request contains an invalid value.");
+            iw.WriteLine("return;");
+            iw.DecreaseAndWriteLine("}");
+        }
+
+        if (queryProp.IsString)
+        {
+            iw.WriteLine($"{queryProp.FullyQualifiedName} {parsedIdent} = {fromIdent};");
+            if (queryProp.IsReferenceType && queryProp.IsRequired)
+            {
+                iw.WriteLine($"if ({parsedIdent} is null)");
+                iw.WriteLineAndIncrease("{");
+                GenerateErrorResponse(iw, contract
+                    , "missingRequiredQueryParamResult"
+                    , "Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest"
+                    , $"Required query parameter \\\"{displayName}\\\" is missing.");
+                iw.WriteLine("return;");
+                iw.DecreaseAndWriteLine("}");
+            }
+            return;
+        }
+
+        var tempVar = $"{parsedIdent}Value";
+        iw.WriteLine($"{queryProp.FullyQualifiedName} {parsedIdent} = default;");
+        iw.WriteLine($"if (!System.String.IsNullOrWhiteSpace({fromIdent}))");
+        iw.WriteLineAndIncrease("{");
+        iw.WriteLine($"{queryProp.NonNullableTypeName} {tempVar};");
+        iw.WriteLine(queryProp.IsEnum
+            ? $"if (!System.Enum.TryParse<{queryProp.NonNullableTypeName}>({fromIdent}, out {tempVar}))"
+            : $"if (!{queryProp.NonNullableTypeName}.TryParse({fromIdent}, out {tempVar}))");
+        WriteBadValue();
+        iw.WriteLine($"{parsedIdent} = {tempVar};");
+        iw.DecreaseAndWriteLine("}");
     }
 
     private static void GenerateBodyParsing(IndentedTextWriter iw, ContractMetadata contract, List<string> unsafeAccessors)

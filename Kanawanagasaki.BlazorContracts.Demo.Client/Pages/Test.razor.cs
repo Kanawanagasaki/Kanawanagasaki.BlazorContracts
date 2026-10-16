@@ -97,6 +97,17 @@ public partial class Test : ComponentBase
         StateHasChanged();
     }
 
+    // Wire-only: raw-HTTP endpoint tests. The endpoint-over-real-HTTP check belongs to the
+    // WASM pass (ClientContractsService + raw HttpClient both go over the network). In SSR the
+    // typed handler tests already run in-process and the endpoint is not what a Server pass is
+    // supposed to verify — so these raw tests are intentionally skipped there.
+    private async Task RunCaseWireAsync(CategoryResult cat, string label, Func<Task> body)
+    {
+        if (RendererInfo.Name != "WebAssembly")
+            return;
+        await RunCaseAsync(cat, label, body);
+    }
+
     private void Recount()
         => _passedTestsCount = _categories.Sum(c => c.Passed);
 
@@ -397,7 +408,7 @@ public partial class Test : ComponentBase
                 $"name={result.Data?.FileName} mt={result.Data?.MediaType} len={result.Data?.Length} bytes={ms.Length} status={result.StatusCode}");
         });
 
-        await RunCaseAsync(cat, "raw: 200 + Content-Type/Length/Disposition + exact bytes", async () =>
+        await RunCaseWireAsync(cat, "raw: 200 + Content-Type/Length/Disposition + exact bytes", async () =>
         {
             using var response = await client.GetAsync($"/api/files/{upload.Data?.Id ?? -1}/file");
             var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
@@ -427,7 +438,7 @@ public partial class Test : ComponentBase
                 $"status={result.StatusCode} err={result.ErrorMessage} data={(result.Data is null ? "null" : "present")}");
         });
 
-        await RunCaseAsync(cat, "raw: missing file -> json envelope, no disposition", async () =>
+        await RunCaseWireAsync(cat, "raw: missing file -> json envelope, no disposition", async () =>
         {
             using var response = await client.GetAsync("/api/files/999999/file");
             var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
@@ -459,7 +470,7 @@ public partial class Test : ComponentBase
                 $"status={result.StatusCode} err={result.ErrorMessage}");
         });
 
-        await RunCaseAsync(cat, "raw: msgpack envelope 404 (application/x-msgpack)", async () =>
+        await RunCaseWireAsync(cat, "raw: msgpack envelope 404 (application/x-msgpack)", async () =>
         {
             using var response = await client.GetAsync("/api/files/999999/msgpack-file");
             var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
@@ -499,7 +510,7 @@ public partial class Test : ComponentBase
                 $"status={result.StatusCode} err={result.ErrorMessage} name={result.Data?.FileName} bytes={ms.Length}");
         });
 
-        await RunCaseAsync(cat, "raw: multipart envelope + attachment part with headers", async () =>
+        await RunCaseWireAsync(cat, "raw: multipart envelope + attachment part with headers", async () =>
         {
             using var response = await client.GetAsync("/api/test/file-with-error");
             var raw = await response.Content.ReadAsByteArrayAsync();
@@ -568,7 +579,7 @@ public partial class Test : ComponentBase
                 $"name={result.Data?.FileName} mt={result.Data?.MediaType} len={result.Data?.Length} bytes={ms.Length} status={result.StatusCode}");
         });
 
-        await RunCaseAsync(cat, "raw: compressed file -> lz4 header + disposition, chunked body", async () =>
+        await RunCaseWireAsync(cat, "raw: compressed file -> lz4 header + disposition, chunked body", async () =>
         {
             using var response = await client.GetAsync($"/api/files/{upload.Data?.Id ?? -1}/compressed-file");
             var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
@@ -605,7 +616,7 @@ public partial class Test : ComponentBase
                 $"status={result.StatusCode} err={result.ErrorMessage} data={(result.Data is null ? "null" : "present")}");
         });
 
-        await RunCaseAsync(cat, "raw: compressed 404 -> lz4 json envelope", async () =>
+        await RunCaseWireAsync(cat, "raw: compressed 404 -> lz4 json envelope", async () =>
         {
             using var response = await client.GetAsync("/api/files/999999/compressed-file");
             var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out var dv) ? string.Join(", ", dv) : null;
@@ -734,7 +745,7 @@ public partial class Test : ComponentBase
     {
         var cat = new CategoryResult("Generator Edge Cases (typed)");
 
-        await RunCaseAsync(cat, "getter-only props bound via UnsafeAccessor (raw query)", async () =>
+        await RunCaseWireAsync(cat, "getter-only props bound via UnsafeAccessor (raw query)", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.GetAsync("/api/test/get-getter-only?Echo=getter-only&Repeat=3");
@@ -809,6 +820,79 @@ public partial class Test : ComponentBase
                 $"msg={(result.Data?.Message == name ? "round trip OK" : result.Data?.Message)} status={result.StatusCode}");
         });
 
+        await RunCaseAsync(cat, "enum route param: valid name -> 200 echo (static Enum.TryParse)", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetRouteEnumContract { Level = TestRouteLevel.High });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Level=High";
+
+            Pass(cat, "enum route param: valid name -> 200 echo (static Enum.TryParse)", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseWireAsync(cat, "enum route param: bad name -> 400 contract envelope (no type/name leak)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/enum/NotARealOne");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null;
+
+            Pass(cat, "enum route param: bad name -> 400 contract envelope (no type/name leak)", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseAsync(cat, "nullable route param: has value -> 200 echo (static TryParse + nullable)", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetRouteNullableContract { Value = 77 });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "Value=77";
+
+            Pass(cat, "nullable route param: has value -> 200 echo (static TryParse + nullable)", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseWireAsync(cat, "nullable route param: bad value -> 400 contract envelope (no type/name leak)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/route-nullable/x");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null;
+
+            Pass(cat, "nullable route param: bad value -> 400 contract envelope (no type/name leak)", pass,
+                $"status={status} error={error}");
+        });
+
+        // A route segment is positionally always present, so "absent -> null" is untestable
+        // over URL (it's a query-param concept and is covered by the query-param regressions).
+        // The reachable matrix for a nullable route param is: valid -> 200 echo, invalid -> 400.
+        // The typed-Service case above may run in-process on the SSR/Server pass, so prove the
+        // nullable TryParse binding over the wire here with a raw client.
+        await RunCaseWireAsync(cat, "nullable route param: has value -> 200 echo (raw HTTP over the wire)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/route-nullable/77");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, _, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 200
+                && status == 200
+                && data is not null
+                && data.Value.GetProperty("Message").GetString() == "Value=77";
+
+            Pass(cat, "nullable route param: has value -> 200 echo (raw HTTP over the wire)", pass,
+                $"msg={(data is null ? "n/a" : data.Value.GetProperty("Message").GetString())} status={status}");
+        });
+
         await RunCaseAsync(cat, "DELETE with query params + custom names", async () =>
         {
             var result = await Contracts.ProcessAsync(new TestDeleteQueryContract { Filter = "del", Page = 4 });
@@ -827,7 +911,7 @@ public partial class Test : ComponentBase
     {
         var cat = new CategoryResult("Query Optionality (GET/DELETE)");
 
-        await RunCaseAsync(cat, "GET optional: empty query -> 200 with defaults", async () =>
+        await RunCaseWireAsync(cat, "GET optional: empty query -> 200 with defaults", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.GetAsync("/api/test/query-optional");
@@ -863,7 +947,7 @@ public partial class Test : ComponentBase
                 $"msg={result.Data?.Message} status={result.StatusCode}");
         });
 
-        await RunCaseAsync(cat, "DELETE optional: empty query -> 200 with defaults", async () =>
+        await RunCaseWireAsync(cat, "DELETE optional: empty query -> 200 with defaults", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.DeleteAsync("/api/test/query-optional-delete");
@@ -889,7 +973,7 @@ public partial class Test : ComponentBase
                 $"msg={result.Data?.Message} status={result.StatusCode}");
         });
 
-        await RunCaseAsync(cat, "GET required: missing query -> 400 contract envelope", async () =>
+        await RunCaseWireAsync(cat, "GET required: missing query -> 400 contract envelope", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.GetAsync("/api/test/query-required");
@@ -906,7 +990,7 @@ public partial class Test : ComponentBase
                 $"status={status} error={error} ct={materialized.ContentType}");
         });
 
-        await RunCaseAsync(cat, "GET required: custom-named one missing -> envelope mentions its query key", async () =>
+        await RunCaseWireAsync(cat, "GET required: custom-named one missing -> envelope mentions its query key", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.GetAsync("/api/test/query-required?Name=abc");
@@ -931,7 +1015,7 @@ public partial class Test : ComponentBase
                 $"msg={result.Data?.Message} status={result.StatusCode}");
         });
 
-        await RunCaseAsync(cat, "GET required: only optional given on the wire -> 400 envelope", async () =>
+        await RunCaseWireAsync(cat, "GET required: only optional given on the wire -> 400 envelope", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.GetAsync("/api/test/query-required?Extra=e");
@@ -947,7 +1031,7 @@ public partial class Test : ComponentBase
                 $"status={status} error={error}");
         });
 
-        await RunCaseAsync(cat, "DELETE required: missing query -> 400 contract envelope", async () =>
+        await RunCaseWireAsync(cat, "DELETE required: missing query -> 400 contract envelope", async () =>
         {
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.DeleteAsync("/api/test/query-required-delete");
@@ -970,6 +1054,124 @@ public partial class Test : ComponentBase
             var pass = result.IsSuccessWithData && result.Data.Message == "Id=42;Reason=done";
 
             Pass(cat, "DELETE required: provided -> 200 echo", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseWireAsync(cat, "GET route: bad int -> 400 contract envelope", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/abc");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null
+                && (materialized.ContentType is null || materialized.ContentType.StartsWith("application/json"));
+
+            Pass(cat, "GET route: bad int -> 400 contract envelope (no type/name leak)", pass,
+                $"status={status} error={error} ct={materialized.ContentType}");
+        });
+
+        await RunCaseWireAsync(cat, "GET route: good int -> handler echoes Id*10 as status", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/20");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, _, _) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 200 && status == 200;
+
+            Pass(cat, "GET route: good int -> handler echoes Id*10 as status", pass,
+                $"http={materialized.Status} body-status={status}");
+        });
+
+        await RunCaseWireAsync(cat, "PUT route: bad int -> 400 contract envelope", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.PutAsync(
+                "/api/test/update/abc",
+                new StringContent("{\"Number\":5,\"Message\":\"m\"}", Encoding.UTF8, "application/json"));
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null;
+
+            Pass(cat, "PUT route: bad int -> 400 contract envelope (no type/name leak)", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseWireAsync(cat, "PUT route: good int -> 200 echo (route+body)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.PutAsync(
+                "/api/test/update/3",
+                new StringContent("{\"Number\":7,\"Message\":\"m\"}", Encoding.UTF8, "application/json"));
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, _, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 200
+                && status == 200
+                && data is not null
+                && data.Value.GetProperty("Message").GetString() == "21";
+
+            Pass(cat, "PUT route: good int -> 200 echo (route+body)", pass,
+                $"msg={(data is null ? "n/a" : data.Value.GetProperty("Message").GetString())} status={status}");
+        });
+
+        await RunCaseWireAsync(cat, "GET route: overflow int -> 400 route envelope (not framework 500/400)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/99999999999999");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null;
+
+            Pass(cat, "GET route: overflow int -> 400 route envelope (not framework 500/400)", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseWireAsync(cat, "GET query: bad int -> 400 generic envelope (not framework 500/HTML 400)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/query/7?Filter=x&Page=Hello,%20world!");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null;
+
+            Pass(cat, "GET query: bad int -> 400 generic envelope (not framework 500/HTML 400)", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseAsync(cat, "GET query: valid int -> 200 echo (regression)", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetRouteQueryParamContract { Id = 7, Filter = "x", Page = 42 });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "7x42";
+
+            Pass(cat, "GET query: valid int -> 200 echo (regression)", pass,
+                $"msg={result.Data?.Message} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "GET query: absent int -> 200 with null (optional, no 400)", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestGetRouteQueryParamContract { Id = 7, Filter = "x" });
+
+            var pass = result.IsSuccessWithData && result.Data.Message == "7x";
+
+            Pass(cat, "GET query: absent int -> 200 with null (optional, no 400)", pass,
                 $"msg={result.Data?.Message} status={result.StatusCode}");
         });
 
