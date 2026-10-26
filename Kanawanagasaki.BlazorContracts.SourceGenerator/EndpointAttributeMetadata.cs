@@ -18,7 +18,12 @@ internal class EndpointAttributeMetadata
     internal string? Policy { get; }
     internal string? AuthenticationSchemes { get; }
 
-    private EndpointAttributeMetadata(AttributeData attrData)
+    internal bool IsKnown { get; }
+    internal bool CanApplyToEndpoint { get; }
+    internal Location? AttributeLocation { get; }
+    private bool _instanceSourceIncomplete;
+
+    private EndpointAttributeMetadata(AttributeData attrData, IAssemblySymbol? emittingAssembly)
     {
         AttributeFullyQualifiedName = attrData.AttributeClass!.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT);
         AttributeShortName = attrData.AttributeClass!.Name;
@@ -49,6 +54,14 @@ internal class EndpointAttributeMetadata
             }
         }
 
+        IsKnown = IsKnownEndpointAttribute(attrData.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT));
+        AttributeInstanceSource = RenderAttributeInstanceSource(attrData);
+        CanApplyToEndpoint = IsAccessibleFromGeneratedCode(attrData.AttributeClass, emittingAssembly) && !_instanceSourceIncomplete;
+        AttributeLocation = attrData.ApplicationSyntaxReference?.GetSyntax()?.GetLocation();
+    }
+
+    private string RenderAttributeInstanceSource(AttributeData attrData)
+    {
         var sb = new System.Text.StringBuilder();
         sb.Append("new ");
         sb.Append(attrData.AttributeClass!.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT));
@@ -89,7 +102,7 @@ internal class EndpointAttributeMetadata
             sb.Append(" }");
         }
 
-        AttributeInstanceSource = sb.ToString();
+        return sb.ToString();
     }
 
     private string FormatTypedConstant(TypedConstant tc)
@@ -132,8 +145,36 @@ internal class EndpointAttributeMetadata
                 return $"new {elementType}[] {{ {elements} }}";
 
             default:
+                if (tc.Value is not null)
+                    _instanceSourceIncomplete = true;
                 return "null";
         }
+    }
+
+    private static bool IsAccessibleFromGeneratedCode(INamedTypeSymbol? type, IAssemblySymbol? emittingAssembly)
+    {
+        for (var current = type; current is not null; current = current.ContainingType)
+        {
+            switch (current.DeclaredAccessibility)
+            {
+                case Accessibility.Public:
+                    continue;
+
+                case Accessibility.Internal:
+                case Accessibility.ProtectedOrInternal:
+                    if (emittingAssembly is not null && SymbolEqualityComparer.Default.Equals(current.ContainingAssembly, emittingAssembly))
+                        continue;
+                    return false;
+
+                case Accessibility.NotApplicable:
+                    continue;
+
+                default:
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsKnownAuthorizeAttribute(string fqn)
@@ -177,18 +218,14 @@ internal class EndpointAttributeMetadata
             "Microsoft.AspNetCore.RateLimiting.DisableRateLimitingAttribute" or
             "Microsoft.AspNetCore.Routing.HostAttribute";
 
-    internal static bool TryCreate(AttributeData attrData, out EndpointAttributeMetadata? metadata)
+    internal static bool TryCreate(AttributeData attrData, out EndpointAttributeMetadata? metadata, IAssemblySymbol? emittingAssembly = null)
     {
         metadata = null;
 
         if (attrData.AttributeClass is null)
             return false;
 
-        var fqn = attrData.AttributeClass.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT);
-        if (!IsKnownEndpointAttribute(fqn))
-            return false;
-
-        metadata = new EndpointAttributeMetadata(attrData);
+        metadata = new EndpointAttributeMetadata(attrData, emittingAssembly);
         return true;
     }
 }

@@ -61,7 +61,7 @@ internal record HandlerMetadata
         }
     }
 
-    internal static bool TryCreate(INamedTypeSymbol handler, out HandlerMetadata? metadata)
+    internal static bool TryCreate(INamedTypeSymbol handler, out HandlerMetadata? metadata, IAssemblySymbol? emittingAssembly = null)
     {
         metadata = null;
 
@@ -83,7 +83,7 @@ internal record HandlerMetadata
 
         foreach (var attrData in handler.GetAttributes())
         {
-            if (!EndpointAttributeMetadata.TryCreate(attrData, out var endpointAttr))
+            if (!EndpointAttributeMetadata.TryCreate(attrData, out var endpointAttr, emittingAssembly))
                 continue;
             if (endpointAttr is null)
                 continue;
@@ -95,7 +95,7 @@ internal record HandlerMetadata
         {
             foreach (var attrData in handleAsyncMethod.GetAttributes())
             {
-                if (!EndpointAttributeMetadata.TryCreate(attrData, out var endpointAttr))
+                if (!EndpointAttributeMetadata.TryCreate(attrData, out var endpointAttr, emittingAssembly))
                     continue;
                 if (endpointAttr is null)
                     continue;

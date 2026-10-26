@@ -16,13 +16,21 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor s_passThroughEndpointAttribute = new(
+        id: "KBC2005",
+        title: "Unknown attribute applied only to minimal endpoint",
+        messageFormat: "Attribute '{0}' on contract handler '{1}' is unknown, applied only to the generated endpoint, takes no effect during SSR or Blazor Server",
+        category: "BlazorContracts",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var config = context.AnalyzerConfigOptionsProvider.Select((options, _) =>
-        {
-            options.GlobalOptions.TryGetValue("build_property.BlazorContracts", out var value);
-            return value;
-        });
+            {
+                options.GlobalOptions.TryGetValue("build_property.BlazorContracts", out var value);
+                return value;
+            });
 
         var handlersDeclarations = context.SyntaxProvider.CreateSyntaxProvider
             (
@@ -33,20 +41,20 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         var compilations = context.CompilationProvider
                                   .Combine(handlersDeclarations.Collect())
                                   .Select((tuple, _) =>
-        {
-            var (compilation, handlersSymbolds) = tuple;
-            var ret = new List<HandlerMetadata>();
-
-            foreach (var handler in handlersSymbolds)
             {
-                if (handler is null)
-                    continue;
-                if (HandlerMetadata.TryCreate(handler, out var metadata) && metadata is not null)
-                    ret.Add(metadata);
-            }
+                var (compilation, handlersSymbolds) = tuple;
+                var ret = new List<HandlerMetadata>();
 
-            return ret.ToImmutableArray();
-        });
+                foreach (var handler in handlersSymbolds)
+                {
+                    if (handler is null)
+                        continue;
+                    if (HandlerMetadata.TryCreate(handler, out var metadata, compilation.Assembly) && metadata is not null)
+                        ret.Add(metadata);
+                }
+
+                return ret.ToImmutableArray();
+            });
 
         context.RegisterSourceOutput(config.Combine(compilations), Execute);
     }
@@ -57,6 +65,23 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         var optIns = config?.ToLowerInvariant().Split(',') ?? [];
         if (!optIns.Contains("endpoints"))
             return;
+
+        foreach (var item in list)
+        {
+            foreach (var attr in item.EndpointAttributes)
+            {
+                if (!attr.IsKnown)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create
+                    (
+                        s_passThroughEndpointAttribute,
+                        attr.AttributeLocation,
+                        attr.AttributeShortName,
+                        item.HandlerFullyQualifiedName
+                    ));
+                }
+            }
+        }
 
         using var sw = new StringWriter();
         using var iw = new IndentedTextWriter(sw);
@@ -450,6 +475,9 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.Write(".WithMetadata(new Kanawanagasaki.BlazorContracts.ContractAuthEndpointMarker())");
             foreach (var attr in item.EndpointAttributes)
             {
+                if (!attr.CanApplyToEndpoint)
+                    continue;
+
                 iw.WriteLine();
                 iw.Write($".WithMetadata({attr.AttributeInstanceSource})");
             }
