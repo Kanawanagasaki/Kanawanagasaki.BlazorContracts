@@ -6,6 +6,7 @@ public class ContractMetadata
 {
     public string Name { get; }
     public string FullyQualifiedName { get; }
+    internal Location? ContractTypeLocation { get; }
 
     private readonly Dictionary<string, PropertyMetadata> _properties = [];
     public IReadOnlyDictionary<string, PropertyMetadata> Properties => _properties;
@@ -31,6 +32,7 @@ public class ContractMetadata
 
     private ContractMetadata(INamedTypeSymbol type, string endpoint, string verbStr)
     {
+        ContractTypeLocation = type.Locations.FirstOrDefault();
         Name = type.Name;
         FullyQualifiedName = type.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT);
         Endpoint = endpoint;

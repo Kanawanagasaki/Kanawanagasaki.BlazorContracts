@@ -24,6 +24,14 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor s_missingRouteParamContractProperty = new(
+        id: "KBC2008",
+        title: "Route parameter without a matching contract property",
+        messageFormat: "Route parameter '{0}' of contract '{1}' has no matching contract property",
+        category: "BlazorContracts",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var config = context.AnalyzerConfigOptionsProvider.Select((options, _) =>
@@ -225,10 +233,19 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             }
 
             var unsupportedRouteParam = false;
+            var missingRouteParam = false;
             foreach (var routePart in routeParts)
             {
                 if (!item.Contract.Properties.TryGetValue(routePart, out var checkProp))
+                {
+                    missingRouteParam = true;
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        s_missingRouteParamContractProperty,
+                        item.Contract.ContractTypeLocation,
+                        routePart,
+                        item.Contract.FullyQualifiedName));
                     continue;
+                }
                 if (checkProp.IsRouteParamSupported)
                     continue;
                 unsupportedRouteParam = true;
@@ -237,7 +254,8 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     checkProp.Location,
                     checkProp.NonNullableTypeName));
             }
-            if (unsupportedRouteParam)
+
+            if (unsupportedRouteParam || missingRouteParam)
                 continue;
 
             var isGetOrDelete = item.Contract.VerbStr == "Get" || item.Contract.VerbStr == "Delete";
