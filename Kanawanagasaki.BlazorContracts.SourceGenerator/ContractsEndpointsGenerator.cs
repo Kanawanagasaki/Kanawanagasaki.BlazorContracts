@@ -807,7 +807,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
     private static string? GetBackingFieldAssignmentStatement(ContractMetadata contract, PropertyMetadata prop, string valueExpression, List<string> unsafeAccessors)
     {
-        if ((prop.HasPublicSetter && !prop.IsInitOnly) || contract.FullyQualifiedName.Contains('<'))
+        if (prop.HasPublicSetter && !prop.IsInitOnly)
             return $"contract.{prop.Name} = {valueExpression};";
 
         if (!prop.HasBackingField)

@@ -171,6 +171,11 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                         BaseAddress = new System.Uri(navMgr.BaseUri)
                     };
                 }
+                
+                public ClientContractsService(System.Net.Http.HttpClient http)
+                {
+                    Http = http;
+                }
             """);
 
         iw.IndentLevel = 1;
