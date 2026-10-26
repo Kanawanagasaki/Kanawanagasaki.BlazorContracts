@@ -76,6 +76,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     PropertyNamingPolicy = null,
                     DictionaryKeyPolicy = null,
                     DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+                    UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
                     TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver
                     {
                         Modifiers =
@@ -87,8 +88,6 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         foreach (var item in list)
         {
             if (item.Contract.VerbStr != "Post" && item.Contract.VerbStr != "Put")
-                continue;
-            if (item.Contract.IsMessagePack)
                 continue;
             if (!item.Contract.HasBinaryProperty)
                 continue;
@@ -594,7 +593,10 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     switch(part.Name)
                     {
                         case "{{contract.Name}}":
-                            contractPart = part;
+                            if (contractPart is null)
+                                contractPart = part;
+                            else
+                                await part.DisposeAsync();
                             break;
                 """);
             iw.IndentLevel += 2;
@@ -608,7 +610,10 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
                 iw.WriteLine($$"""
                     case "{{prop.Name}}":
-                        binary{{prop.Name}}Part = part;
+                        if (binary{{prop.Name}}Part is null)
+                            binary{{prop.Name}}Part = part;
+                        else
+                            await part.DisposeAsync();
                         break;
                     """);
             }
@@ -759,6 +764,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         iw.WriteLine($$"""
             var {{resultVarName}} = new {{resultTypeName}}({{statusCode}}, "{{errorMessage}}");
             httpResponse.StatusCode = {{resultVarName}}.StatusCode;
+            httpResponse.ContentType = {{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}};
             """);
 
         if (contract.IsCompressed)

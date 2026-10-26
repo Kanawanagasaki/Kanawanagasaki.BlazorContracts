@@ -90,23 +90,34 @@ public abstract class ClientContractsServiceBase
 
         var contentStream = await response.Content.ReadAsStreamAsync(ct);
         TResult? result;
-        if (ContractHeaders.IsLz4Response(response))
+        try
         {
-            await using var decompressor = LZ4Stream.Decode(contentStream, leaveOpen: true);
-            if (isMessagePack)
-                result = await BlazorContractsMessagePack.DeserializeAsync<TResult>(decompressor, ct);
+            if (ContractHeaders.IsLz4Response(response))
+            {
+                await using var decompressor = LZ4Stream.Decode(contentStream, leaveOpen: true);
+                if (isMessagePack)
+                    result = await BlazorContractsMessagePack.DeserializeAsync<TResult>(decompressor, ct);
+                else
+                    result = await JsonSerializer.DeserializeAsync<TResult>(decompressor, JsonOptions, ct);
+            }
             else
-                result = await JsonSerializer.DeserializeAsync<TResult>(decompressor, JsonOptions, ct);
+            {
+                if (isMessagePack)
+                    result = await BlazorContractsMessagePack.DeserializeAsync<TResult>(contentStream, ct);
+                else
+                    result = await JsonSerializer.DeserializeAsync<TResult>(contentStream, JsonOptions, ct);
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            if (isMessagePack)
-                result = await BlazorContractsMessagePack.DeserializeAsync<TResult>(contentStream, ct);
-            else
-                result = await JsonSerializer.DeserializeAsync<TResult>(contentStream, JsonOptions, ct);
+            throw;
+        }
+        catch (Exception)
+        {
+            return resultFactory(0, "Deserialization Error");
         }
 
-        return result ?? resultFactory((int)response.StatusCode, "Failed to deserialize the response");
+        return result ?? resultFactory(0, "Deserialization Error");
     }
 
     protected async Task<ContractResult<byte[]>> ProcessBytesCoreAsync(HttpRequestMessage request, CancellationToken ct = default)
@@ -171,9 +182,35 @@ public abstract class ClientContractsServiceBase
                     byteArray ??= ms.ToArray();
                 }
                 else if (ContractHeaders.IsJson(part.ContentType))
-                    contractResult ??= await JsonSerializer.DeserializeAsync<ContractResult<byte[]>>(part.Stream, JsonOptions, ct);
+                {
+                    try
+                    {
+                        contractResult ??= await JsonSerializer.DeserializeAsync<ContractResult<byte[]>>(part.Stream, JsonOptions, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception)
+                    {
+                        return new ContractResult<byte[]>(0, "Deserialization Error");
+                    }
+                }
                 else if (ContractHeaders.IsMessagePack(part.ContentType))
-                    contractResult ??= await BlazorContractsMessagePack.DeserializeAsync<ContractResult<byte[]>>(part.Stream, ct);
+                {
+                    try
+                    {
+                        contractResult ??= await BlazorContractsMessagePack.DeserializeAsync<ContractResult<byte[]>>(part.Stream, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception)
+                    {
+                        return new ContractResult<byte[]>(0, "Deserialization Error");
+                    }
+                }
             }
             finally
             {
@@ -185,7 +222,7 @@ public abstract class ClientContractsServiceBase
         }
 
         if (contractResult is null && byteArray is null)
-            return new ContractResult<byte[]>((int)response.StatusCode, "Failed to parse the response");
+            return new ContractResult<byte[]>(0, "Empty Response");
         if (byteArray is null)
             return contractResult!;
         if (contractResult is null)
@@ -259,7 +296,12 @@ public abstract class ClientContractsServiceBase
         await foreach (var part in ContractMultipart.ParseAsync(body, response.Content.Headers.ContentType?.ToString(), ct))
         {
             if (ContractHeaders.IsBinary(part.ContentType))
-                streamData ??= part.Stream;
+            {
+                if (streamData is null)
+                    streamData = part.Stream;
+                else
+                    await part.DisposeAsync();
+            }
             else
             {
                 try
@@ -268,6 +310,20 @@ public abstract class ClientContractsServiceBase
                         contractResult ??= await JsonSerializer.DeserializeAsync<DisposableContractResult<Stream>>(part.Stream, JsonOptions, ct);
                     else if (ContractHeaders.IsMessagePack(part.ContentType))
                         contractResult ??= await BlazorContractsMessagePack.DeserializeAsync<DisposableContractResult<Stream>>(part.Stream, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    if (streamData is not null)
+                        await streamData.DisposeAsync();
+
+                    return new DisposableContractResult<Stream>((int)response.StatusCode, "Deserialization Error")
+                    {
+                        HttpResponse = response
+                    };
                 }
                 finally
                 {
@@ -281,7 +337,7 @@ public abstract class ClientContractsServiceBase
 
         if (contractResult is null && streamData is null)
         {
-            return new DisposableContractResult<Stream>((int)response.StatusCode, "Failed to parse the response")
+            return new DisposableContractResult<Stream>(0, "Empty Response")
             {
                 HttpResponse = response
             };
@@ -383,6 +439,20 @@ public abstract class ClientContractsServiceBase
                     else
                         contractResult ??= await BlazorContractsMessagePack.DeserializeAsync<DisposableContractResult<ContractFile>>(part.Stream, ct);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    if (file is not null)
+                        await file.DisposeAsync();
+
+                    return new DisposableContractResult<ContractFile>(0, "Deserialization Error")
+                    {
+                        HttpResponse = response
+                    };
+                }
                 finally
                 {
                     await part.DisposeAsync();
@@ -403,7 +473,7 @@ public abstract class ClientContractsServiceBase
 
         if (contractResult is null && file is null)
         {
-            return new DisposableContractResult<ContractFile>((int)response.StatusCode, "Failed to parse the response")
+            return new DisposableContractResult<ContractFile>(0, "Empty Response")
             {
                 HttpResponse = response
             };

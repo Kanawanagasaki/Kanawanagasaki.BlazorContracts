@@ -83,8 +83,6 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
 
         foreach (var contract in list)
         {
-            if (contract.IsMessagePack)
-                continue;
             if (!contract.HasBinaryProperty)
                 continue;
 

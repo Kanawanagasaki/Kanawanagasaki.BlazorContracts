@@ -13,7 +13,7 @@
 	<ItemGroup>
 		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.Demo.Client\Kanawanagasaki.BlazorContracts.Demo.Client.csproj" />
 		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.Demo.Shared\Kanawanagasaki.BlazorContracts.Demo.Shared.csproj" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.9" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.13" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -22,9 +22,7 @@
 
 	<ItemGroup>
 		<CompilerVisibleProperty Include="BlazorContracts" />
-		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.SourceGenerator\Kanawanagasaki.BlazorContracts.SourceGenerator.csproj"
-						  OutputItemType="Analyzer"
-						  ReferenceOutputAssembly="false" />
+		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.SourceGenerator\Kanawanagasaki.BlazorContracts.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
 </Project>
