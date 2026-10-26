@@ -21,4 +21,7 @@ public static class Constants
     public const string ContractCompressionAttributeFullName = "Kanawanagasaki.BlazorContracts.ContractCompressionAttribute";
     public const string LZ4CompressionLevel = "K4os.Compression.LZ4.LZ4Level";
     public const string LZ4CompressionLevelDefault = LZ4CompressionLevel + ".L00_FAST";
+
+    public const string MultipartEnvelopePartNamePrefix = "env";
+    public const string MultipartPropertyPartNamePrefix = "prop";
 }

@@ -265,7 +265,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.WriteLine("System.Threading.CancellationToken ct = default) =>");
             iw.DecreaseAndWriteLine("{");
 
-            if (item.Contract.HasContractFileProperty || item.Contract.IsDisposableReturnType)
+            if (item.Contract.HasBinaryProperty || item.Contract.IsDisposableReturnType)
                 iw.IncreaseAndWriteLine("var toDispose = new System.Collections.Generic.List<System.IDisposable>();");
             else
                 iw.IndentLevel++;
@@ -365,7 +365,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 GenerateBodyParsing(iw, item.Contract, unsafeAccessors);
 
                 iw.WriteLineAndIncrease("""
-                    if (contract is null)
+                    if (contract is null || isBadRequest)
                     {
                     """);
                 GenerateBadRequestResponse(iw, item.Contract);
@@ -430,7 +430,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             GenerateInternalErrorResponse(iw, item.Contract);
             iw.DecreaseAndWriteLine("}");
 
-            if (item.Contract.HasContractFileProperty || item.Contract.IsDisposableReturnType)
+            if (item.Contract.HasBinaryProperty || item.Contract.IsDisposableReturnType)
             {
                 iw.WriteLine("""
                     finally
@@ -564,6 +564,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
     private static void GenerateBodyParsing(IndentedTextWriter iw, ContractMetadata contract, List<string> unsafeAccessors)
     {
         iw.WriteLineAndIncrease($$"""
+            var isBadRequest = false;
             {{contract.FullyQualifiedName}}? contract = null;
             try
             {
@@ -592,11 +593,17 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 {
                     switch(part.Name)
                     {
-                        case "{{contract.Name}}":
+                        case "{{Constants.MultipartEnvelopePartNamePrefix}}{{contract.Name}}":
                             if (contractPart is null)
+                            {
                                 contractPart = part;
+                                toDispose.Add(part);
+                            }
                             else
+                            {
+                                isBadRequest = true;
                                 await part.DisposeAsync();
+                            }
                             break;
                 """);
             iw.IndentLevel += 2;
@@ -609,22 +616,33 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     continue;
 
                 iw.WriteLine($$"""
-                    case "{{prop.Name}}":
+                    case "{{Constants.MultipartPropertyPartNamePrefix}}{{prop.Name}}":
                         if (binary{{prop.Name}}Part is null)
+                        {
                             binary{{prop.Name}}Part = part;
+                            toDispose.Add(part);
+                        }
                         else
+                        {
+                            isBadRequest = true;
                             await part.DisposeAsync();
+                        }
                         break;
                     """);
             }
 
             iw.WriteLine("""
                 default:
+                    isBadRequest = true;
                     await part.DisposeAsync();
                     break;
                 """);
 
             iw.DecreaseAndWriteLine("}");
+            iw.WriteLine("""
+                if (isBadRequest)
+                    break;
+                """);
             iw.DecreaseAndWriteLine("}");
 
             iw.WriteLine($$"""
@@ -678,7 +696,6 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                         var binary{{prop.Name}}Filename = binary{{prop.Name}}Part.FileName ?? binary{{prop.Name}}Part.Name ?? System.Guid.NewGuid().ToString("N");
                         var binary{{prop.Name}}ContentType = binary{{prop.Name}}Part.ContentType ?? {{Constants.ContractHeadersFullName}}.OctetStreamMediaType;
                         var binary{{prop.Name}}File = new {{Constants.ContractFileFullName}}(binary{{prop.Name}}Part.Stream, binary{{prop.Name}}Filename, binary{{prop.Name}}ContentType, binary{{prop.Name}}Part.Length);
-                        toDispose.Add(binary{{prop.Name}}Part);
                         if (contract is not null)
                             {{GetBackingFieldAssignmentStatement(contract, prop, $"binary{prop.Name}File", unsafeAccessors)}}
                         """);
@@ -828,7 +845,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
                     $"--{boundary}\r\n" +
                     $"Content-Type: {{{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}}}\r\n" +
-                    $"Content-Disposition: form-data; name=\"{{contract.Name}}\"\r\n" +
+                    $"Content-Disposition: form-data; name=\"{{Constants.MultipartEnvelopePartNamePrefix}}{{contract.Name}}\"\r\n" +
             """);
         if (contract.IsCompressed)
         {
@@ -960,7 +977,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 await httpResponse.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
                     $"--{boundary}\r\n" +
                     $"Content-Type: {{{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}}}\r\n" +
-                    $"Content-Disposition: form-data; name=\"{{contract.Name}}\"\r\n" +
+                    $"Content-Disposition: form-data; name=\"{{Constants.MultipartEnvelopePartNamePrefix}}{{contract.Name}}\"\r\n" +
             """);
         if (contract.IsCompressed)
         {

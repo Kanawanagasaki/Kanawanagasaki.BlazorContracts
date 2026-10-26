@@ -517,7 +517,7 @@ public partial class Test : ComponentBase
             var contentType = response.Content.Headers.ContentType?.ToString() ?? "";
 
             var rawText = Encoding.UTF8.GetString(raw);
-            var hasEnvelopePartHeader = rawText.Contains("Content-Disposition: form-data; name=\"TestGetFileWithErrorContract\"");
+            var hasEnvelopePartHeader = rawText.Contains("Content-Disposition: form-data; name=\"envTestGetFileWithErrorContract\"");
             var hasFilePartHeader = rawText.Contains(expectedDisposition)
                 && rawText.Contains("Content-Type: application/pdf")
                 && rawText.Contains("Content-Length: 2400");
@@ -1110,7 +1110,7 @@ public partial class Test : ComponentBase
             using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
             using var response = await client.PutAsync(
                 "/api/test/update/3",
-                new StringContent("{\"Number\":7,\"Message\":\"m\"}", Encoding.UTF8, "application/json"));
+                new StringContent("{\"Number\":7}", Encoding.UTF8, "application/json"));
             var materialized = await MaterializeResponseAsync(response);
             var (status, _, data) = ParseJsonEnvelope(materialized.Body);
 
@@ -2348,10 +2348,10 @@ public partial class Test : ComponentBase
             var file2 = Encoding.UTF8.GetBytes("wire file two with more content");
 
             using var multipart = new MultipartFormDataContent("wire-boundary-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(JsonContent("{}"), "TestUploadCombinedContract");
-            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "Data", "Data.bin");
-            multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file1), "w1.txt", "text/plain", file1.Length)), "File1", "w1.txt");
-            multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file2), "w2.txt", "text/plain", file2.Length)), "File2", "w2.txt");
+            multipart.Add(JsonContent("{}"), "envTestUploadCombinedContract");
+            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "propData", "Data.bin");
+            multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file1), "w1.txt", "text/plain", file1.Length)), "propFile1", "w1.txt");
+            multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file2), "w2.txt", "text/plain", file2.Length)), "propFile2", "w2.txt");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/upload/combined") { Content = multipart };
             using var response = await client.SendAsync(request);
@@ -2376,8 +2376,8 @@ public partial class Test : ComponentBase
             var payload = Enumerable.Range(0, 2048).Select(i => (byte)(i % 251)).ToArray();
 
             using var multipart = new MultipartFormDataContent("wire-lz4-boundary-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(await Lz4Wrap(Encoding.UTF8.GetBytes("""{"FileName":"wire-lz4.bin"}"""), ContractHeaders.JsonMediaType), "TestCompressBinaryContract");
-            multipart.Add(await Lz4Wrap(payload, ContractHeaders.OctetStreamMediaType), "Content", "Content.bin");
+            multipart.Add(await Lz4Wrap(Encoding.UTF8.GetBytes("""{"FileName":"wire-lz4.bin"}"""), ContractHeaders.JsonMediaType), "envTestCompressBinaryContract");
+            multipart.Add(await Lz4Wrap(payload, ContractHeaders.OctetStreamMediaType), "propContent", "Content.bin");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/compress/binary") { Content = multipart };
             using var response = await client.SendAsync(request);
@@ -2406,8 +2406,8 @@ public partial class Test : ComponentBase
             };
 
             using var multipart = new MultipartFormDataContent("wire-mp-boundary-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(MsgpackContent(BlazorContractsMessagePack.Serialize(contract)), "MessagePackStreamUploadContract", "MessagePackStreamUploadContract.msgpack");
-            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractHeaders.OctetStreamMediaType), "Content", "wire-mp.bin");
+            multipart.Add(MsgpackContent(BlazorContractsMessagePack.Serialize(contract)), "envMessagePackStreamUploadContract", "MessagePackStreamUploadContract.msgpack");
+            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractHeaders.OctetStreamMediaType), "propContent", "wire-mp.bin");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/msgpack/stream-upload") { Content = multipart };
             using var response = await client.SendAsync(request);
@@ -2433,8 +2433,8 @@ public partial class Test : ComponentBase
             Random.Shared.NextBytes(fileBytes);
 
             using var multipart = new MultipartFormDataContent("wire-up-boundary-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(JsonContent("""{"FileName":"wire-raw.bin","MediaType":"application/octet-stream"}"""), "FileUploadBytesContract");
-            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractHeaders.OctetStreamMediaType), "Content", "Content.bin");
+            multipart.Add(JsonContent("""{"FileName":"wire-raw.bin","MediaType":"application/octet-stream"}"""), "envFileUploadBytesContract");
+            multipart.Add(ContractBody.CreateBinary(fileBytes, ContractHeaders.OctetStreamMediaType), "propContent", "Content.bin");
 
             using var upload = new HttpRequestMessage(HttpMethod.Post, "/api/files/bytes") { Content = multipart };
             var uploadResponse = await client.SendAsync(upload);
@@ -2571,7 +2571,7 @@ public partial class Test : ComponentBase
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/msgpack/weather")
             {
-                Content = JsonContent("""{"Seed":4,"Days":2,"Payload":""}""")
+                Content = JsonContent("""{"Seed":4,"Days":2}""")
             };
             var materialized = await MaterializeResponseAsync(await client.SendAsync(request));
 
@@ -2586,7 +2586,7 @@ public partial class Test : ComponentBase
                 $"status={materialized.Status} ct={materialized.ContentType} days={envelope?.Data?.Days?.Length ?? 0}");
         });
 
-        await RunCaseAsync(cat, "msgpack bytes echo + json body -> 200 (mixed modes)", async () =>
+        await RunCaseAsync(cat, "json body with byte[] field -> 400 (json carries no binary)", async () =>
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/msgpack-bytes-echo")
             {
@@ -2594,17 +2594,11 @@ public partial class Test : ComponentBase
             };
             var materialized = await MaterializeResponseAsync(await client.SendAsync(request));
 
-            await using var ms = new MemoryStream(materialized.Body);
-            var envelope = await BlazorContractsMessagePack.DeserializeAsync<ContractResult<byte[]>>(ms);
+            var pass = materialized.Status == 400
+                && materialized.ContentType == "application/x-msgpack";
 
-            var pass = materialized.Status == 200
-                && materialized.ContentType == "application/x-msgpack"
-                && envelope is { StatusCode: 200 }
-                && envelope.Data is not null
-                && envelope.Data.SequenceEqual((byte[])[1, 2, 3, 4]);
-
-            Pass(cat, "msgpack bytes echo + json body -> 200 (mixed modes)", pass,
-                $"status={materialized.Status} ct={materialized.ContentType} len={envelope?.Data?.Length}");
+            Pass(cat, "json body with byte[] field -> 400 (json carries no binary)", pass,
+                $"status={materialized.Status} ct={materialized.ContentType}");
         });
 
         await RunCaseAsync(cat, "multipart msgpack contract part on json contract -> 200", async () =>
@@ -2616,9 +2610,9 @@ public partial class Test : ComponentBase
             var contract = new TestUploadCombinedContract { Data = dataBytes };
 
             using var multipart = new MultipartFormDataContent("mis-3-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(MsgpackContent(BlazorContractsMessagePack.Serialize(contract)), "TestUploadCombinedContract");
-            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "Data", "Data.bin");
-            multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file1), "m1.txt", "text/plain", file1.Length)), "File1", "m1.txt");
+            multipart.Add(MsgpackContent(BlazorContractsMessagePack.Serialize(contract)), "envTestUploadCombinedContract");
+            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "propData", "Data.bin");
+            multipart.Add(ContractBody.CreateFile(new ContractFile(new MemoryStream(file1), "m1.txt", "text/plain", file1.Length)), "propFile1", "m1.txt");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/upload/combined") { Content = multipart };
             var materialized = await MaterializeResponseAsync(await client.SendAsync(request));
@@ -2643,8 +2637,8 @@ public partial class Test : ComponentBase
             var barePart = new ByteArrayContent(Encoding.UTF8.GetBytes("{}"));
 
             using var multipart = new MultipartFormDataContent("mis-4-" + Guid.NewGuid().ToString("N"));
-            multipart.Add(barePart, "TestUploadCombinedContract");
-            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "Data", "Data.bin");
+            multipart.Add(barePart, "envTestUploadCombinedContract");
+            multipart.Add(ContractBody.CreateBinary(dataBytes, ContractHeaders.OctetStreamMediaType), "propData", "Data.bin");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/test/upload/combined") { Content = multipart };
             var materialized = await MaterializeResponseAsync(await client.SendAsync(request));

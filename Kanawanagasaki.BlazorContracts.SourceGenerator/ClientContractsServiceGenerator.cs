@@ -290,7 +290,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         {
             iw.WriteLine($$"""
                 using var content = new System.Net.Http.MultipartFormDataContent();
-                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateMessagePack(contract{{comaCompressionLevel}}), "{{metadata.Name}}", "{{metadata.Name}}.msgpack");
+                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateMessagePack(contract{{comaCompressionLevel}}), "{{Constants.MultipartEnvelopePartNamePrefix}}{{metadata.Name}}", "{{metadata.Name}}.msgpack");
                 """);
 
             foreach (var prop in metadata.Properties.Values)
@@ -300,7 +300,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{comaCompressionLevel}}), "{{prop.Name}}", contract.{{prop.Name}}.FileName);
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{comaCompressionLevel}}), "{{Constants.MultipartPropertyPartNamePrefix}}{{prop.Name}}", contract.{{prop.Name}}.FileName);
                         }
                         """);
                 }
@@ -316,7 +316,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
         {
             iw.WriteLine($$"""
                 using var content = new System.Net.Http.MultipartFormDataContent();
-                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateJson(contract, JsonOptions{{comaCompressionLevel}}), "{{metadata.Name}}");
+                content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateJson(contract, JsonOptions{{comaCompressionLevel}}), "{{Constants.MultipartEnvelopePartNamePrefix}}{{metadata.Name}}");
                 """);
 
             foreach (var prop in metadata.Properties.Values)
@@ -326,7 +326,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateBinary(contract.{{prop.Name}}, {{Constants.ContractHeadersFullName}}.OctetStreamMediaType{{comaCompressionLevel}}), "{{prop.Name}}", "{{prop.Name}}.bin");
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateBinary(contract.{{prop.Name}}, {{Constants.ContractHeadersFullName}}.OctetStreamMediaType{{comaCompressionLevel}}), "{{Constants.MultipartPropertyPartNamePrefix}}{{prop.Name}}", "{{prop.Name}}.bin");
                         }
                         """);
                 }
@@ -335,7 +335,7 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                     iw.WriteLine($$"""
                         if (contract.{{prop.Name}} is not null)
                         {
-                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{comaCompressionLevel}}), "{{prop.Name}}", contract.{{prop.Name}}.FileName);
+                            content.Add(Kanawanagasaki.BlazorContracts.ContractBody.CreateFile(contract.{{prop.Name}}{{comaCompressionLevel}}), "{{Constants.MultipartPropertyPartNamePrefix}}{{prop.Name}}", contract.{{prop.Name}}.FileName);
                         }
                         """);
                 }

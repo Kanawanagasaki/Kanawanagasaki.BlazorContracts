@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 
 public static class ContractMultipart
 {
-    public static int SpoolMemoryThreshold { get; set; } = 1024 * 1024;
+    public const int SpoolMemoryThreshold = 1024 * 1024;
 
     public sealed class Part : IDisposable, IAsyncDisposable
     {
@@ -18,7 +18,6 @@ public static class ContractMultipart
         public string? DispositionType { get; internal set; }
         public string? ContentType { get; }
         public long Length { get; }
-
 
         internal Part(Stream body, string? contentType, long length)
         {
