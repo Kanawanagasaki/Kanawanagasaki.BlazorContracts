@@ -409,9 +409,9 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                         if (!propertyIndex.TryGetValue(routePart, out var putIdx))
                             continue;
 
-                    var routeAssignment = GetBackingFieldAssignmentStatement(item.Contract, routeProp, "parsedValue" + putIdx, unsafeAccessors);
-                    if (routeAssignment is not null)
-                        iw.WriteLine(routeAssignment);
+                        var routeAssignment = GetBackingFieldAssignmentStatement(item.Contract, routeProp, "parsedValue" + putIdx, unsafeAccessors);
+                        if (routeAssignment is not null)
+                            iw.WriteLine(routeAssignment);
                     }
                 }
             }
@@ -484,7 +484,16 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.WriteLine(";");
         }
 
-        iw.DecreaseAndWriteLine("}");
+        iw.DecreaseAndWriteLine("""
+            }
+
+            private static bool TryParseInvariant<T>(string? s, out T value) where T : System.IParsable<T>
+            {
+                #pragma warning disable CS8601
+                return T.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out value);
+                #pragma warning restore CS8601
+            }
+            """);
 
         if (0 < unsafeAccessors.Count)
         {
@@ -525,8 +534,8 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
             iw.WriteLineAndIncrease("{");
             iw.WriteLine($"{routeProp.NonNullableTypeName} {tempVar};");
             iw.WriteLine(routeProp.IsEnum
-                ? $"if (!System.Enum.TryParse<{routeProp.NonNullableTypeName}>({routeStringIdent}, out {tempVar}))"
-                : $"if (!{routeProp.NonNullableTypeName}.TryParse({routeStringIdent}, out {tempVar}))");
+                ? $"if (!System.Enum.TryParse<{routeProp.NonNullableTypeName}>({routeStringIdent}, out {tempVar}) || !System.Enum.IsDefined({tempVar}))"
+                : $"if (!TryParseInvariant({routeStringIdent}, out {tempVar}))");
             WriteBadRouteValue();
             iw.WriteLine($"{parsedVar} = {tempVar};");
             iw.DecreaseAndWriteLine("}");
@@ -535,8 +544,8 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
         iw.WriteLine($"{routeProp.FullyQualifiedName} {parsedVar};");
         iw.WriteLine(routeProp.IsEnum
-            ? $"if (!System.Enum.TryParse<{routeProp.NonNullableTypeName}>({routeStringIdent}, out {parsedVar}))"
-            : $"if (!{routeProp.NonNullableTypeName}.TryParse({routeStringIdent}, out {parsedVar}))");
+            ? $"if (!System.Enum.TryParse<{routeProp.NonNullableTypeName}>({routeStringIdent}, out {parsedVar}) || !System.Enum.IsDefined({parsedVar}))"
+            : $"if (!TryParseInvariant({routeStringIdent}, out {parsedVar}))");
         WriteBadRouteValue();
     }
 
@@ -582,8 +591,8 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         iw.WriteLineAndIncrease("{");
         iw.WriteLine($"{queryProp.NonNullableTypeName} {tempVar};");
         iw.WriteLine(queryProp.IsEnum
-            ? $"if (!System.Enum.TryParse<{queryProp.NonNullableTypeName}>({fromIdent}, out {tempVar}))"
-            : $"if (!{queryProp.NonNullableTypeName}.TryParse({fromIdent}, out {tempVar}))");
+            ? $"if (!System.Enum.TryParse<{queryProp.NonNullableTypeName}>({fromIdent}, out {tempVar}) || !System.Enum.IsDefined({tempVar}))"
+            : $"if (!TryParseInvariant({fromIdent}, out {tempVar}))");
         WriteBadValue();
         iw.WriteLine($"{parsedIdent} = {tempVar};");
         iw.DecreaseAndWriteLine("}");

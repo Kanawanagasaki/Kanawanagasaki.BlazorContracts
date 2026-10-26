@@ -846,6 +846,34 @@ public partial class Test : ComponentBase
                 $"status={status} error={error}");
         });
 
+        await RunCaseWireAsync(cat, "enum route param: numeric out-of-range -> 400 (strict Enum.IsDefined)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/enum/999");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "The request contains an invalid value."
+                && data is null;
+
+            Pass(cat, "enum route param: numeric out-of-range -> 400 (strict Enum.IsDefined)", pass,
+                $"status={status} error={error}");
+        });
+
+        await RunCaseWireAsync(cat, "enum query param: undefined value -> 400 (strict Enum.IsDefined)", async () =>
+        {
+            using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+            using var response = await client.GetAsync("/api/test/msgpack-compressed/1?Scope=999");
+            var materialized = await MaterializeResponseAsync(response);
+
+            var pass = materialized.Status == 400;
+
+            Pass(cat, "enum query param: undefined value -> 400 (strict Enum.IsDefined)", pass,
+                $"status={materialized.Status} ct={materialized.ContentType}");
+        });
+
         await RunCaseAsync(cat, "nullable route param: has value -> 200 echo (static TryParse + nullable)", async () =>
         {
             var result = await Contracts.ProcessAsync(new TestGetRouteNullableContract { Value = 77 });
