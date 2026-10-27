@@ -18,7 +18,9 @@ public class ContractMetadata
     public bool IsStreamReturnType { get; }
     public bool IsContractFileReturnType { get; }
     public bool IsDisposableReturnType { get; }
+    public bool IsSseReturnType { get; }
     public string? ReturnFullyQualifiedName { get; }
+    public string? SseItemDataTypeFullyQualifiedName { get; }
 
     public bool IsMessagePack { get; }
 
@@ -68,6 +70,20 @@ public class ContractMetadata
 
             IsReturning = true;
             ReturnFullyQualifiedName = iface.TypeArguments[0].ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS);
+
+            if (iface.TypeArguments[0] is INamedTypeSymbol returnTypeSymbol)
+            {
+                if (returnTypeSymbol.OriginalDefinition.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.IAsyncEnumerableFullName
+                    && returnTypeSymbol.TypeArguments.Length == 1
+                    && returnTypeSymbol.TypeArguments[0] is INamedTypeSymbol sseItemSymbol
+                    && sseItemSymbol.OriginalDefinition.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == Constants.SseItemFullName
+                    && sseItemSymbol.TypeArguments.Length == 1)
+                {
+                    IsSseReturnType = true;
+                    SseItemDataTypeFullyQualifiedName = sseItemSymbol.TypeArguments[0].ToDisplayString(Helper.SYMB_DISPLAY_FORMAT_GENERICS);
+                    ReturnFullyQualifiedName = ReturnFullyQualifiedName.Replace(SseItemDataTypeFullyQualifiedName, SseItemDataTypeFullyQualifiedName + "?");
+                }
+            }
 
             if (iface.TypeArguments[0] is IArrayTypeSymbol arr && arr.ElementType.ToDisplayString(Helper.SYMB_DISPLAY_FORMAT) == typeof(byte).FullName)
                 IsByteArrayReturnType = true;

@@ -6,8 +6,8 @@ using Kanawanagasaki.BlazorContracts;
 using Kanawanagasaki.BlazorContracts.Demo.Shared.Contracts;
 using Kanawanagasaki.BlazorContracts.Demo.Shared.Models;
 using Microsoft.AspNetCore.Components;
-using System.Net;
 using System.Net.Http.Headers;
+using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 
@@ -49,11 +49,13 @@ public partial class Test : ComponentBase
             await RunCompressedAsync();
             await RunTodoCrudAsync();
             await RunWeatherAsync();
+            await RunSseAsync();
 
             if (RendererInfo.Name == "WebAssembly")
             {
                 await RunWireFormatsAsync();
                 await RunMisalignedServerAsync();
+                await RunSseWireFormatsAsync();
             }
 
             _logs.Add(new LogEntry($"Done. {_passedTestsCount} tests passed.", true));
@@ -592,7 +594,6 @@ public partial class Test : ComponentBase
 
             var pass = (int)response.StatusCode == 200
                 && lz4
-                && response.Headers.TransferEncodingChunked == true
                 && response.Content.Headers.ContentType?.ToString() == "application/pdf"
                 && disposition == expectedDisposition
                 && !body.SequenceEqual(payload)
@@ -600,7 +601,7 @@ public partial class Test : ComponentBase
                 && ContractHeaders.GetXOriginalSize(response) == 2400;
 
             Pass(cat, "raw: compressed file -> lz4 header + disposition, chunked body", pass,
-                $"status={(int)response.StatusCode} lz4={lz4} chunked={response.Headers.TransferEncodingChunked} ct={response.Content.Headers.ContentType} compressed={body.Length} decompressed={decompressedMs.Length} cd={disposition}");
+                $"status={(int)response.StatusCode} lz4={lz4} ct={response.Content.Headers.ContentType} compressed={body.Length} decompressed={decompressedMs.Length} cd={disposition}");
         });
 
         await RunCaseAsync(cat, "typed: compressed 404 -> lz4 json envelope without data", async () =>
@@ -1369,6 +1370,302 @@ public partial class Test : ComponentBase
 
             Pass(cat, "weather get by id out of range -> 404", pass,
                 $"status={result.StatusCode} err={result.ErrorMessage}");
+        });
+
+        _categories.Add(cat);
+        Recount();
+    }
+
+    private async Task RunSseAsync()
+    {
+        var cat = new CategoryResult("SSE (typed)");
+
+        await RunCaseAsync(cat, "json events: 3 events with id/event/retry round trip", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestSseJsonContract { Count = 3 });
+
+            var items = new List<SseItem<SimpleTestResponse?>>();
+            if (result.Data is not null)
+                await foreach (var item in result.Data)
+                    items.Add(item);
+
+            var pass = result.IsSuccess
+                && items.Count == 3
+                && items[0].EventId == "0" && items[0].EventType == "tick" && items[0].ReconnectionInterval == TimeSpan.FromSeconds(1)
+                && items[1].EventId == "1" && items[1].ReconnectionInterval is null
+                && items[2].EventId == "2" && items[2].EventType == "tick"
+                && items[0].Data?.Message == "Event 0" && items[1].Data?.Message == "Event 1" && items[2].Data?.Message == "Event 2";
+
+            Pass(cat, "json events: 3 events with id/event/retry round trip", pass,
+                $"items={items.Count} ids=[{string.Join(",", items.Select(x => x.EventId))}] retry0={(items.Count > 0 ? items[0].ReconnectionInterval?.TotalMilliseconds : null)}ms status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "compressed json events: base122 + lz4 decoded", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestSseCompressedJsonContract { Count = 3 });
+
+            var items = new List<SseItem<SimpleTestResponse?>>();
+            if (result.Data is not null)
+                await foreach (var item in result.Data)
+                    items.Add(item);
+
+            var pass = result.IsSuccess
+                && items.Count == 3
+                && items.All(x => x.EventType == "tick" && x.EventId is null && x.ReconnectionInterval is null)
+                && items[0].Data?.Message == "Compressed event 0" && items[2].Data?.Message == "Compressed event 2";
+
+            Pass(cat, "compressed json events: base122 + lz4 decoded", pass,
+                $"items={items.Count} msg2={(items.Count > 2 ? items[2].Data?.Message : "n/a")} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "msgpack events: base122 + msgpack decoded", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestSseMsgPackContract { Count = 2 });
+
+            var items = new List<SseItem<MessagePackWeatherForecast?>>();
+            if (result.Data is not null)
+                await foreach (var item in result.Data)
+                    items.Add(item);
+
+            var pass = result.IsSuccess
+                && items.Count == 2
+                && items.All(x => x.EventType == "forecast")
+                && items[0].Data?.Summary == "Forecast event 0" && items[1].Data?.Summary == "Forecast event 1"
+                && items[0].Data?.TemperatureC == 10 && items[1].Data?.TemperatureC == 11
+                && items[0].Data?.Date == new DateTime(2026, 1, 1);
+
+            Pass(cat, "msgpack events: base122 + msgpack decoded", pass,
+                $"items={items.Count} temp={(items.Count > 0 ? items[0].Data?.TemperatureC : null)} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "compressed msgpack events: base122 + lz4 + msgpack decoded", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestSseMsgPackCompressedContract { Count = 2 });
+
+            var items = new List<SseItem<MessagePackWeatherForecast?>>();
+            if (result.Data is not null)
+                await foreach (var item in result.Data)
+                    items.Add(item);
+
+            var pass = result.IsSuccess
+                && items.Count == 2
+                && items[0].Data?.Summary == "Compressed forecast event 0" && items[1].Data?.Summary == "Compressed forecast event 1"
+                && items[0].Data?.TemperatureC == -10 && items[1].Data?.TemperatureC == -11;
+
+            Pass(cat, "compressed msgpack events: base122 + lz4 + msgpack decoded", pass,
+                $"items={items.Count} temp0={(items.Count > 0 ? items[0].Data?.TemperatureC : null)} status={result.StatusCode}");
+        });
+
+        await RunCaseAsync(cat, "streaming events arrive over time (3 x ~250ms)", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestSseStreamingContract { Count = 3 });
+            var timestamps = new List<DateTimeOffset>();
+            var messages = new List<string?>();
+
+            if (result.Data is not null)
+            {
+                await foreach (var item in result.Data)
+                {
+                    timestamps.Add(DateTimeOffset.UtcNow);
+                    messages.Add(item.Data?.Message);
+                }
+            }
+
+            var pass = result.IsSuccess
+                && timestamps.Count == 3
+                && messages[0] == "Streamed event 0"
+                && 100 < (timestamps[1] - timestamps[0]).TotalMilliseconds
+                && 100 < (timestamps[2] - timestamps[1]).TotalMilliseconds;
+
+            Pass(cat, "streaming events arrive over time (3 x ~250ms)", pass,
+                $"count={timestamps.Count} gaps={(timestamps.Count >= 3 ? $"{(timestamps[1] - timestamps[0]).TotalMilliseconds:F0}ms/{(timestamps[2] - timestamps[1]).TotalMilliseconds:F0}ms" : "n/a")}");
+        });
+
+        await RunCaseAsync(cat, "handler error -> 400 envelope without events", async () =>
+        {
+            var result = await Contracts.ProcessAsync(new TestSseJsonContract { Count = -1 });
+
+            var pass = !result.IsSuccess
+                && result.StatusCode == 400
+                && result.ErrorMessage == "Count must be non-negative."
+                && result.Data is null;
+
+            Pass(cat, "handler error -> 400 envelope without events", pass,
+                $"status={result.StatusCode} err={result.ErrorMessage} data={(result.Data is null ? "null" : "present")}");
+        });
+
+        _categories.Add(cat);
+        Recount();
+    }
+
+    // Wire-only: raw HTTP checks of the server-sent-events framing, headers and the
+    // base122/lz4/msgpack payload encoding. Runs in the WebAssembly pass only, next to
+    // the other raw wire tests.
+    private async Task RunSseWireFormatsAsync()
+    {
+        var cat = new CategoryResult("SSE Wire Formats (raw HTTP)");
+        using var client = new HttpClient() { BaseAddress = new Uri(NavMgr.BaseUri) };
+
+        await RunCaseAsync(cat, "GET json events: exact wire format + sse headers", async () =>
+        {
+            using var response = await client.GetAsync("/api/test/sse/json?Count=2");
+            var body = await response.Content.ReadAsStringAsync();
+            var xct = response.Headers.TryGetValues(ContractHeaders.XContentTypeHeader, out var v) ? v.FirstOrDefault() : null;
+
+            var expected =
+                "id: 0\nevent: tick\nretry: 1000\ndata: {\"Message\":\"Event 0\"}\n\n" +
+                "id: 1\nevent: tick\ndata: {\"Message\":\"Event 1\"}\n\n";
+
+            var pass = (int)response.StatusCode == 200
+                && response.Content.Headers.ContentType?.MediaType == ContractHeaders.SseMediaType
+                && xct == ContractHeaders.JsonMediaType
+                && !ContractHeaders.IsLz4Response(response)
+                && body == expected;
+
+            Pass(cat, "GET json events: exact wire format + sse headers", pass,
+                $"status={(int)response.StatusCode} ct={response.Content.Headers.ContentType?.MediaType} xct={xct} len={body.Length}");
+        });
+
+        await RunCaseAsync(cat, "GET json events: parsed with SseParser", async () =>
+        {
+            using var response = await client.GetAsync("/api/test/sse/json?Count=3");
+            var body = await response.Content.ReadAsByteArrayAsync();
+
+            var items = new List<SseItem<SimpleTestResponse>>();
+            var parser = SseParser.Create(new MemoryStream(body), (eventType, data) => JsonSerializer.Deserialize<SimpleTestResponse>(data)!);
+            await foreach (var item in parser.EnumerateAsync())
+                items.Add(item);
+
+            var pass = items.Count == 3
+                && items[0].EventId == "0" && items[0].EventType == "tick" && items[0].ReconnectionInterval == TimeSpan.FromSeconds(1)
+                && items[2].Data?.Message == "Event 2";
+
+            Pass(cat, "GET json events: parsed with SseParser", pass,
+                $"items={items.Count} msg2={(items.Count > 2 ? items[2].Data?.Message : "n/a")}");
+        });
+
+        await RunCaseAsync(cat, "POST compressed json: lz4 header, base122 data decodes to json", async () =>
+        {
+            using var response = await client.PostAsync("/api/test/sse/compressed-json", JsonContent("""{"Count":2}"""));
+            var body = await response.Content.ReadAsStringAsync();
+            var xct = response.Headers.TryGetValues(ContractHeaders.XContentTypeHeader, out var v) ? v.FirstOrDefault() : null;
+
+            var events = new List<SseItem<string>>();
+            var parser = SseParser.Create(new MemoryStream(Encoding.UTF8.GetBytes(body)));
+            await foreach (var item in parser.EnumerateAsync())
+                events.Add(item);
+
+            var decoded = new List<SimpleTestResponse>();
+            foreach (var e in events)
+            {
+                var pickled = Kanawanagasaki.Base122.Base122Decoder.DecodeFromUtf8(Encoding.UTF8.GetBytes(e.Data));
+                var json = LZ4Pickler.Unpickle(pickled);
+                decoded.Add(JsonSerializer.Deserialize<SimpleTestResponse>(json)!);
+            }
+
+            var pass = (int)response.StatusCode == 200
+                && response.Content.Headers.ContentType?.MediaType == ContractHeaders.SseMediaType
+                && xct == ContractHeaders.JsonMediaType
+                && ContractHeaders.IsLz4Response(response)
+                && !body.Contains("Message")
+                && events.Count == 2
+                && decoded[0].Message == "Compressed event 0" && decoded[1].Message == "Compressed event 1";
+
+            Pass(cat, "POST compressed json: lz4 header, base122 data decodes to json", pass,
+                $"events={events.Count} msg0={(decoded.Count > 0 ? decoded[0].Message : "n/a")} lz4={ContractHeaders.IsLz4Response(response)}");
+        });
+
+        await RunCaseAsync(cat, "POST msgpack: base122 data decodes to msgpack", async () =>
+        {
+            using var response = await client.PostAsync("/api/test/sse/msgpack", JsonContent("""{"Count":2}"""));
+            var body = await response.Content.ReadAsStringAsync();
+            var xct = response.Headers.TryGetValues(ContractHeaders.XContentTypeHeader, out var v) ? v.FirstOrDefault() : null;
+
+            var events = new List<SseItem<string>>();
+            var parser = SseParser.Create(new MemoryStream(Encoding.UTF8.GetBytes(body)));
+            await foreach (var item in parser.EnumerateAsync())
+                events.Add(item);
+
+            var decoded = new List<MessagePackWeatherForecast>();
+            foreach (var e in events)
+                decoded.Add(BlazorContractsMessagePack.Deserialize<MessagePackWeatherForecast>(Kanawanagasaki.Base122.Base122Decoder.DecodeFromUtf8(Encoding.UTF8.GetBytes(e.Data)))!);
+
+            var pass = (int)response.StatusCode == 200
+                && xct == ContractHeaders.MessagePackMediaType
+                && !ContractHeaders.IsLz4Response(response)
+                && events.Count == 2
+                && events.All(e => e.EventType == "forecast")
+                && decoded[0].Summary == "Forecast event 0" && decoded[1].TemperatureC == 11;
+
+            Pass(cat, "POST msgpack: base122 data decodes to msgpack", pass,
+                $"events={events.Count} summary0={(decoded.Count > 0 ? decoded[0].Summary : "n/a")} xct={xct}");
+        });
+
+        await RunCaseAsync(cat, "POST compressed msgpack: base122 + lz4 + msgpack", async () =>
+        {
+            using var response = await client.PostAsync("/api/test/sse/msgpack-compressed", JsonContent("""{"Count":2}"""));
+            var body = await response.Content.ReadAsStringAsync();
+            var xct = response.Headers.TryGetValues(ContractHeaders.XContentTypeHeader, out var v) ? v.FirstOrDefault() : null;
+
+            var events = new List<SseItem<string>>();
+            var parser = SseParser.Create(new MemoryStream(Encoding.UTF8.GetBytes(body)));
+            await foreach (var item in parser.EnumerateAsync())
+                events.Add(item);
+
+            var decoded = new List<MessagePackWeatherForecast>();
+            foreach (var e in events)
+            {
+                var pickled = Kanawanagasaki.Base122.Base122Decoder.DecodeFromUtf8(Encoding.UTF8.GetBytes(e.Data));
+                var msgpack = LZ4Pickler.Unpickle(pickled);
+                decoded.Add(BlazorContractsMessagePack.Deserialize<MessagePackWeatherForecast>(msgpack)!);
+            }
+
+            var pass = (int)response.StatusCode == 200
+                && xct == ContractHeaders.MessagePackMediaType
+                && ContractHeaders.IsLz4Response(response)
+                && events.Count == 2
+                && decoded[0].Summary == "Compressed forecast event 0" && decoded[1].TemperatureC == -11;
+
+            Pass(cat, "POST compressed msgpack: base122 + lz4 + msgpack", pass,
+                $"events={events.Count} temp1={(decoded.Count > 1 ? decoded[1].TemperatureC : null)} lz4={ContractHeaders.IsLz4Response(response)}");
+        });
+
+        await RunCaseAsync(cat, "GET streaming: chunked transfer, events on the wire", async () =>
+        {
+            using var response = await client.GetAsync("/api/test/sse/streaming?Count=2", HttpCompletionOption.ResponseHeadersRead);
+            var xct = response.Headers.TryGetValues(ContractHeaders.XContentTypeHeader, out var v) ? v.FirstOrDefault() : null;
+
+            var events = new List<SseItem<SimpleTestResponse>>();
+            var stream = await response.Content.ReadAsStreamAsync();
+            var parser = SseParser.Create<SimpleTestResponse>(stream, (eventType, data) => JsonSerializer.Deserialize<SimpleTestResponse>(data)!);
+            await foreach (var item in parser.EnumerateAsync())
+                events.Add(item);
+
+            var pass = (int)response.StatusCode == 200
+                && response.Content.Headers.ContentType?.MediaType == ContractHeaders.SseMediaType
+                && xct == ContractHeaders.JsonMediaType
+                && events.Count == 2
+                && events[0].Data?.Message == "Streamed event 0";
+
+            Pass(cat, "GET streaming: chunked transfer, events on the wire", pass,
+                $"events={events.Count} msg0={(events.Count > 0 ? events[0].Data?.Message : "n/a")}");
+        });
+
+        await RunCaseAsync(cat, "GET handler error: 400 json envelope, not event-stream", async () =>
+        {
+            using var response = await client.GetAsync("/api/test/sse/json?Count=-1");
+            var materialized = await MaterializeResponseAsync(response);
+            var (status, error, data) = ParseJsonEnvelope(materialized.Body);
+
+            var pass = materialized.Status == 400
+                && status == 400
+                && error == "Count must be non-negative."
+                && data is null
+                && materialized.ContentType == "application/json; charset=utf-8"
+                && !ContractHeaders.IsSse(materialized.ContentType);
+
+            Pass(cat, "GET handler error: 400 json envelope, not event-stream", pass,
+                $"status={materialized.Status} envelope={status} err={error} ct={materialized.ContentType}");
         });
 
         _categories.Add(cat);

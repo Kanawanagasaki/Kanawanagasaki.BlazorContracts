@@ -263,7 +263,9 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
                 GenerateRequestBody(iw, metadata);
             }
 
-            if (metadata.IsStreamReturnType)
+            if (metadata.IsSseReturnType)
+                iw.WriteLine($"return await ProcessSseCoreAsync<{metadata.SseItemDataTypeFullyQualifiedName}>(request, ct);");
+            else if (metadata.IsStreamReturnType)
                 iw.WriteLine("return await ProcessStreamCoreAsync(request, ct);");
             else if (metadata.IsByteArrayReturnType)
                 iw.WriteLine("return await ProcessBytesCoreAsync(request, ct);");

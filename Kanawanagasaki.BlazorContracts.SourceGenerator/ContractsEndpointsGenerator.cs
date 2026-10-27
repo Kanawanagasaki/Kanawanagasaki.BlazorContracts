@@ -456,7 +456,9 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                     return;
                 """);
 
-            if (item.Contract.IsContractFileReturnType)
+            if (item.Contract.IsSseReturnType)
+                GenerateSseResponse(iw, item.Contract);
+            else if (item.Contract.IsContractFileReturnType)
                 GenerateContractFileResponse(iw, item.Contract);
             else if (item.Contract.IsStreamReturnType || (item.Contract.IsByteArrayReturnType && !item.Contract.IsMessagePack))
                 GenerateBinaryResponse(iw, item.Contract);
@@ -829,9 +831,7 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
 
     private static void GenerateErrorResponse(IndentedTextWriter iw, ContractMetadata contract, string resultVarName, string statusCode, string errorMessage)
     {
-        var resultTypeName = contract.IsReturning
-            ? $"{Constants.ContractResultFullName}<{contract.ReturnFullyQualifiedName}>"
-            : Constants.ContractResultFullName;
+        var resultTypeName = Constants.ContractResultFullName;
 
         iw.WriteLine($$"""
             var {{resultVarName}} = new {{resultTypeName}}({{statusCode}}, "{{errorMessage}}");
@@ -878,6 +878,128 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
                 iw.WriteLine("await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(httpResponse.Body, result, ct);");
             else
                 iw.WriteLine("await System.Text.Json.JsonSerializer.SerializeAsync(httpResponse.Body, result, _jsonOptions, ct);");
+        }
+    }
+
+    private static void GenerateSseResponse(IndentedTextWriter iw, ContractMetadata contract)
+    {
+        iw.WriteLine($$"""
+            if (result.Data is not null)
+            {
+                try
+                {
+                    httpResponse.ContentType = {{Constants.ContractHeadersFullName}}.SseMediaType;
+                    httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentTypeHeader] = {{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonMediaType")}};
+            """);
+        iw.IndentLevel += 2;
+
+        if (contract.IsCompressed)
+            iw.WriteLine($"httpResponse.Headers[{Constants.ContractHeadersFullName}.XContentEncodingHeader] = {Constants.ContractHeadersFullName}.XContentEncodingHeaderLz4;");
+
+        iw.WriteLine("await using var sseWriter = new System.IO.StreamWriter(httpResponse.Body, new System.Text.UTF8Encoding(false), 4096, leaveOpen: true);");
+
+        if (contract.IsCompressed || contract.IsMessagePack)
+            iw.WriteLine("using var sseSerialized = new Kanawanagasaki.BlazorContracts.PooledBufferWriter(1024);");
+        if (contract.IsCompressed)
+            iw.WriteLine("using var ssePickled = new Kanawanagasaki.BlazorContracts.PooledBufferWriter(512);");
+        if (contract.IsCompressed && !contract.IsMessagePack)
+            iw.WriteLine("using var sseJson = new System.Text.Json.Utf8JsonWriter(sseSerialized);");
+
+        iw.WriteLineAndIncrease("""
+            await foreach (var sseItem in result.Data)
+            {
+                if (sseItem.EventId is not null)
+                {
+                    sseWriter.Write("id: ");
+                    sseWriter.Write(sseItem.EventId);
+                    sseWriter.Write('\n');
+                }
+                sseWriter.Write("event: ");
+                sseWriter.Write(sseItem.EventType);
+                sseWriter.Write('\n');
+                if (sseItem.ReconnectionInterval is not null)
+                {
+                    sseWriter.Write("retry: ");
+                    sseWriter.Write(((long)sseItem.ReconnectionInterval.Value.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    sseWriter.Write('\n');
+                }
+                sseWriter.Write("data: ");
+                await sseWriter.FlushAsync(ct);
+            """);
+
+        if (contract.IsMessagePack)
+        {
+            iw.WriteLine("""
+                sseSerialized.Reset();
+                Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.Serialize(sseSerialized, sseItem.Data, ct);
+                """);
+            if (contract.IsCompressed)
+            {
+                iw.WriteLine($$"""
+                    ssePickled.Reset();
+                    K4os.Compression.LZ4.LZ4Pickler.Pickle(sseSerialized.WrittenSpan, ssePickled, {{contract.LZ4CompressionLevel}});
+                    await Kanawanagasaki.Base122.Base122Encoder.EncodeToUtf8Async(ssePickled.WrittenMemory, httpResponse.Body, ct);
+                    """);
+            }
+            else
+            {
+                iw.WriteLine("await Kanawanagasaki.Base122.Base122Encoder.EncodeToUtf8Async(sseSerialized.WrittenMemory, httpResponse.Body, ct);");
+            }
+        }
+        else
+        {
+            if (contract.IsCompressed)
+            {
+                iw.WriteLine($$"""
+                    sseSerialized.Reset();
+                    sseJson.Reset();
+                    System.Text.Json.JsonSerializer.Serialize(sseJson, sseItem.Data, _jsonOptions);
+                    sseJson.Flush();
+                    ssePickled.Reset();
+                    K4os.Compression.LZ4.LZ4Pickler.Pickle(sseSerialized.WrittenSpan, ssePickled, {{contract.LZ4CompressionLevel}});
+                    await Kanawanagasaki.Base122.Base122Encoder.EncodeToUtf8Async(ssePickled.WrittenMemory, httpResponse.Body, ct);
+                    """);
+            }
+            else
+            {
+                iw.WriteLine("await System.Text.Json.JsonSerializer.SerializeAsync(httpResponse.Body, sseItem.Data, _jsonOptions, ct);");
+            }
+        }
+
+        iw.IndentLevel -= 3;
+        iw.WriteLine("""
+                        sseWriter.Write("\n\n");
+                        await sseWriter.FlushAsync(ct);
+                    }
+                    return;
+                }
+                catch (System.OperationCanceledException) { }
+                catch (System.IO.IOException) { }
+                return;
+            }
+            """);
+
+        iw.WriteLine($$"""
+            var sseErrorResult = new {{Constants.ContractResultFullName}}(result.StatusCode, result.ErrorMessage);
+            httpResponse.ContentType = {{Constants.ContractHeadersFullName}}.{{(contract.IsMessagePack ? "MessagePackMediaType" : "JsonUtf8MediaType")}};
+            """);
+
+        if (contract.IsCompressed)
+        {
+            iw.WriteLine($$"""
+                httpResponse.Headers[{{Constants.ContractHeadersFullName}}.XContentEncodingHeader] = {{Constants.ContractHeadersFullName}}.XContentEncodingHeaderLz4;
+                await using (var sseErrorCompressor = K4os.Compression.LZ4.Streams.LZ4Stream.Encode(httpResponse.Body, {{contract.LZ4CompressionLevel}}, leaveOpen: true))
+                    {{(contract.IsMessagePack
+                    ? $"await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(sseErrorCompressor, sseErrorResult, ct);"
+                    : $"await System.Text.Json.JsonSerializer.SerializeAsync(sseErrorCompressor, sseErrorResult, _jsonOptions, ct);")}}
+                """);
+        }
+        else
+        {
+            if (contract.IsMessagePack)
+                iw.WriteLine($"await Kanawanagasaki.BlazorContracts.BlazorContractsMessagePack.SerializeAsync(httpResponse.Body, sseErrorResult, ct);");
+            else
+                iw.WriteLine($"await System.Text.Json.JsonSerializer.SerializeAsync(httpResponse.Body, sseErrorResult, _jsonOptions, ct);");
         }
     }
 

@@ -10,10 +10,12 @@ public static class ContractHeaders
     public const string JsonUtf8MediaType = "application/json; charset=utf-8";
     public const string MessagePackMediaType = "application/x-msgpack";
     public const string OctetStreamMediaType = "application/octet-stream";
+    public const string SseMediaType = "text/event-stream";
 
     public const string XOriginalSizeHeader = "X-Original-Size";
     public const string XContentEncodingHeader = "X-Content-Encoding";
     public const string XContentEncodingHeaderLz4 = "lz4";
+    public const string XContentTypeHeader = "X-Content-Type";
     public const string ContentDispositionHeader = "Content-Disposition";
 
     public static bool IsJson(string? mediaType)
@@ -29,6 +31,9 @@ public static class ContractHeaders
     public static bool IsMultipart(string? mediaType)
         => mediaType is not null
         && mediaType.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsSse(string? mediaType)
+        => GetMediaType(mediaType).Equals(SseMediaType, StringComparison.OrdinalIgnoreCase);
 
     private static ReadOnlySpan<char> GetMediaType(string? mediaType)
     {
@@ -57,6 +62,16 @@ public static class ContractHeaders
         if (response.Content?.Headers.TryGetValues(XContentEncodingHeader, out var contentValues) == true && contentValues.Any(IsLz4))
             return true;
         return false;
+    }
+
+    public static string? GetXContentType(HttpResponseMessage response)
+    {
+        IEnumerable<string>? values;
+        if (response.Content.Headers.TryGetValues(XContentTypeHeader, out values))
+            return values.FirstOrDefault();
+        if (response.Headers.TryGetValues(XContentTypeHeader, out values))
+            return values.FirstOrDefault();
+        return null;
     }
 
     public static string? GetContentDisposition(HttpResponseMessage response)

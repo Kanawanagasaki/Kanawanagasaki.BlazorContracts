@@ -8,7 +8,7 @@
 		<LangVersion>latest</LangVersion>
 		
 		<BlazorContracts>Endpoints,ServerService</BlazorContracts>
-	</PropertyGroup>
+	    </PropertyGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Kanawanagasaki.BlazorContracts.Demo.Client\Kanawanagasaki.BlazorContracts.Demo.Client.csproj" />

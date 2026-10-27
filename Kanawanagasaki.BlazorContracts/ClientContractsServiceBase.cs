@@ -2,7 +2,11 @@ namespace Kanawanagasaki.BlazorContracts;
 
 using K4os.Compression.LZ4;
 using K4os.Compression.LZ4.Streams;
+using Kanawanagasaki.Base122;
+using System.Buffers;
 using System.Net;
+using System.Net.ServerSentEvents;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 public abstract class ClientContractsServiceBase
@@ -75,6 +79,120 @@ public abstract class ClientContractsServiceBase
         finally
         {
             response?.Dispose();
+        }
+    }
+
+    protected async Task<ContractResult<IAsyncEnumerable<SseItem<TItem?>>>> ProcessSseCoreAsync<TItem>(HttpRequestMessage request, CancellationToken ct = default)
+    {
+        static ContractResult<IAsyncEnumerable<SseItem<TItem?>>> factory(int s, string? e) => new(s, e);
+
+        HttpResponseMessage? response = null;
+        try
+        {
+            response = await SendAsync(request, ct);
+
+            if (ContractHeaders.IsSse(response.Content.Headers.ContentType?.MediaType))
+            {
+                var result = await ReadSseAsync<TItem>(response, ct);
+                response = null;
+                return result;
+            }
+
+            var error = await ReadEnvelopeAsync(response, (statusCode, errorMessage) => new ContractResult(statusCode, errorMessage), ct);
+            return new(error.StatusCode, error.ErrorMessage);
+        }
+        catch (OperationCanceledException)
+        {
+            return factory(499, "Client Closed Request");
+        }
+        catch (Exception)
+        {
+            return factory(0, "Network Error");
+        }
+        finally
+        {
+            response?.Dispose();
+        }
+    }
+
+    private async Task<ContractResult<IAsyncEnumerable<SseItem<TItem?>>>> ReadSseAsync<TItem>(HttpResponseMessage response, CancellationToken ct)
+    {
+        var payloadMediaType = ContractHeaders.GetXContentType(response);
+        var isMessagePack = payloadMediaType is not null && ContractHeaders.IsMessagePack(payloadMediaType);
+        var isLz4 = ContractHeaders.IsLz4Response(response);
+
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+
+        var parser = SseParser.Create(stream, (eventType, data) => DecodeSsePayload<TItem>(data, isMessagePack, isLz4));
+
+        return new((int)response.StatusCode)
+        {
+            Data = EnumerateSseAsync(parser, response, ct)
+        };
+    }
+
+    private TItem? DecodeSsePayload<TItem>(ReadOnlySpan<byte> data, bool isMessagePack, bool isLz4)
+    {
+        if (!isLz4)
+        {
+            if (isMessagePack)
+            {
+                var encodedBuffer = ArrayPool<byte>.Shared.Rent(Base122Decoder.GetMaxDecodedFromUtf8Length(data.Length));
+                try
+                {
+                    if (!Base122Decoder.TryDecodeFromUtf8(data, encodedBuffer, out var encodedLength))
+                        throw new InvalidDataException("Invalid Base122 payload");
+                    return BlazorContractsMessagePack.Deserialize<TItem>(encodedBuffer.AsMemory(0, encodedLength));
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(encodedBuffer);
+                }
+            }
+
+            return JsonSerializer.Deserialize<TItem>(data, JsonOptions);
+        }
+
+        var maxEncoded = Base122Decoder.GetMaxDecodedFromUtf8Length(data.Length);
+        var base122Buffer = ArrayPool<byte>.Shared.Rent(maxEncoded);
+        try
+        {
+            if (!Base122Decoder.TryDecodeFromUtf8(data, base122Buffer, out var encodedLength))
+                throw new InvalidDataException("Invalid Base122 payload");
+
+            var pickled = base122Buffer.AsSpan(0, encodedLength);
+
+            var unpickledSize = LZ4Pickler.UnpickledSize(pickled);
+            var payloadBuffer = ArrayPool<byte>.Shared.Rent(unpickledSize);
+            try
+            {
+                LZ4Pickler.Unpickle(pickled, payloadBuffer.AsSpan(0, unpickledSize));
+
+                if (isMessagePack)
+                    return BlazorContractsMessagePack.Deserialize<TItem>(payloadBuffer.AsMemory(0, unpickledSize));
+                return JsonSerializer.Deserialize<TItem>(payloadBuffer.AsSpan(0, unpickledSize), JsonOptions);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(payloadBuffer);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(base122Buffer);
+        }
+    }
+
+    private static async IAsyncEnumerable<SseItem<TItem>> EnumerateSseAsync<TItem>(SseParser<TItem> parser, HttpResponseMessage response, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        try
+        {
+            await foreach (var item in parser.EnumerateAsync(ct))
+                yield return item;
+        }
+        finally
+        {
+            response.Dispose();
         }
     }
 

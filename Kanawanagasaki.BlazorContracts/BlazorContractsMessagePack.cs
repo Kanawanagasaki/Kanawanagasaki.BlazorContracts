@@ -1,5 +1,6 @@
 namespace Kanawanagasaki.BlazorContracts;
 
+using System.Buffers;
 using MessagePack;
 using MessagePack.Formatters;
 using MessagePack.Resolvers;
@@ -11,6 +12,9 @@ public static class BlazorContractsMessagePack
 
     public static byte[] Serialize<T>(T value)
         => MessagePackSerializer.Serialize(value, Options);
+
+    public static void Serialize<T>(IBufferWriter<byte> destination, T value, CancellationToken ct = default)
+        => MessagePackSerializer.Serialize(destination, value, Options, ct);
 
     public static Task SerializeAsync<T>(Stream destination, T value, CancellationToken ct = default)
         => MessagePackSerializer.SerializeAsync(destination, value, Options, ct);

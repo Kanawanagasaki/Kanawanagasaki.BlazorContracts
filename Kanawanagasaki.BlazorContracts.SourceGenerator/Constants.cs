@@ -13,6 +13,8 @@ public static class Constants
     public const string ContractHeadersFullName = "Kanawanagasaki.BlazorContracts.ContractHeaders";
 
     public const string IAsyncDisposableFullName = "System.IAsyncDisposable";
+    public const string IAsyncEnumerableFullName = "System.Collections.Generic.IAsyncEnumerable";
+    public const string SseItemFullName = "System.Net.ServerSentEvents.SseItem";
 
     public const string JsonPropertyNameAttributeFullName = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
 
