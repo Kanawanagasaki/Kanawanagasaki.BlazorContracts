@@ -896,6 +896,10 @@ public class ContractsEndpointsGenerator : IIncrementalGenerator
         if (contract.IsCompressed)
             iw.WriteLine($"httpResponse.Headers[{Constants.ContractHeadersFullName}.XContentEncodingHeader] = {Constants.ContractHeadersFullName}.XContentEncodingHeaderLz4;");
 
+        iw.WriteLine("await httpResponse.Body.FlushAsync(ct);");
+        iw.WriteLine("await httpResponse.StartAsync(ct);");
+        iw.WriteLine("await httpResponse.Body.FlushAsync(ct);");
+
         iw.WriteLine("await using var sseWriter = new System.IO.StreamWriter(httpResponse.Body, new System.Text.UTF8Encoding(false), 4096, leaveOpen: true);");
 
         if (contract.IsCompressed || contract.IsMessagePack)

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Kanawanagasaki.BlazorContracts.Demo.Components;
+using Kanawanagasaki.BlazorContracts.Demo.Services;
 using Kanawanagasaki.BlazorContracts.Demo.Stores;
 using Kanawanagasaki.BlazorContracts;
 using Microsoft.AspNetCore.Authentication;
@@ -12,6 +13,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveWebAssemblyComponents();
 
 builder.Services.AddSingleton<AppStore>();
+builder.Services.AddSingleton<ChatBroadcaster>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

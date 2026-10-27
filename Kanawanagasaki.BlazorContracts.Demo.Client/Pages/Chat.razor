@@ -1,0 +1,86 @@
+@page "/chat"
+@rendermode InteractiveAuto
+
+<PageTitle>Chat (SSE)</PageTitle>
+
+<h1 class="mb-3">Chat (SSE)</h1>
+
+@if (_connected || _connecting)
+{
+    <div class="alert alert-info" role="alert">
+        <strong>Transport:</strong> @TransportLabel<br />
+        <strong>Nickname:</strong> @_nickname<br />
+        <strong>Status:</strong> @(_connected ? "Connected" : "Connecting...")
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Messages</div>
+        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+            @foreach (var entry in _entries)
+            {
+                @if (entry.Message is not null)
+                {
+                    <div>
+                        <span class="text-muted small me-1">@entry.Message.SentAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                        <strong>@entry.Message.Nickname:</strong>
+                        @entry.Message.Text
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted">@entry.Status</div>
+                }
+            }
+        </div>
+    </div>
+
+    <form class="d-flex gap-2" @onsubmit="SendAsync" @onsubmit:preventDefault>
+        <input class="form-control" @bind="@_draft" maxlength="500" placeholder="Type a message..." />
+        <button class="btn btn-primary px-4" type="submit">Send</button>
+    </form>
+}
+else
+{
+    <div class="alert alert-info" role="alert">
+        <strong>Render mode:</strong> @RendererInfo.Name<br />
+        Pick how chat messages should be transported, enter a nickname and connect.
+    </div>
+
+    <form class="card p-3" style="max-width: 480px;" @onsubmit="ConnectAsync" @onsubmit:preventDefault>
+        <div class="mb-3">
+            <label class="form-label" for="chat-nickname">Nickname</label>
+            <input id="chat-nickname" class="form-control" @bind="@_nickname" maxlength="64" placeholder="e.g. Alice" />
+        </div>
+
+        <div class="mb-3">
+            <span class="form-label d-block">Payload format</span>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" id="chat-format-json" name="chat-format" checked="@(_format == EFormat.Json)" @onchange="@(() => _format = EFormat.Json)" />
+                <label class="form-check-label" for="chat-format-json">JSON</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" id="chat-format-msgpack" name="chat-format" checked="@(_format == EFormat.MessagePack)" @onchange="@(() => _format = EFormat.MessagePack)" />
+                <label class="form-check-label" for="chat-format-msgpack">MessagePack</label>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <span class="form-label d-block">Compression</span>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" id="chat-comp-none" name="chat-compression" checked="@(_compression == ECompression.None)" @onchange="@(() => _compression = ECompression.None)" />
+                <label class="form-check-label" for="chat-comp-none">Uncompressed</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" id="chat-comp-lz4" name="chat-compression" checked="@(_compression == ECompression.Lz4)" @onchange="@(() => _compression = ECompression.Lz4)" />
+                <label class="form-check-label" for="chat-comp-lz4">LZ4</label>
+            </div>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger py-2">@_error</div>
+        }
+
+        <button class="btn btn-primary" type="submit">Connect</button>
+    </form>
+}

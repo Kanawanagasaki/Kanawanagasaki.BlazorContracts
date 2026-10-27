@@ -228,6 +228,12 @@ public class ContractsServiceGenerator : IIncrementalGenerator
             iw.WriteLine("var result = await handler.HandleAsync(contract, ct);");
             if (metadata.Contract.IsDisposableReturnType)
                 iw.WriteLine($"return result.AsDisposable();");
+            else if (metadata.Contract.IsSseReturnType)
+            {
+                iw.WriteLine("#pragma warning disable CS8619");
+                iw.WriteLine("return result;");
+                iw.WriteLine("#pragma warning restore CS8619");
+            }
             else
                 iw.WriteLine($"return result;");
 
