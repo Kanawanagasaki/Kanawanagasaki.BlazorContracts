@@ -184,11 +184,11 @@ public class ClientContractsServiceGenerator : IIncrementalGenerator
             iw.WriteLine();
 
             if (metadata.IsDisposableReturnType)
-                iw.WriteLine($"public async Task<{Constants.DisposableContractResultFullName}<{metadata.ReturnFullyQualifiedName}>> ProcessAsync({metadata.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
+                iw.WriteLine($"public virtual async Task<{Constants.DisposableContractResultFullName}<{metadata.ReturnFullyQualifiedName}>> ProcessAsync({metadata.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
             else if (metadata.IsReturning)
-                iw.WriteLine($"public async Task<{Constants.ContractResultFullName}<{metadata.ReturnFullyQualifiedName}>> ProcessAsync({metadata.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
+                iw.WriteLine($"public virtual async Task<{Constants.ContractResultFullName}<{metadata.ReturnFullyQualifiedName}>> ProcessAsync({metadata.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
             else
-                iw.WriteLine($"public async Task<{Constants.ContractResultFullName}> ProcessAsync({metadata.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
+                iw.WriteLine($"public virtual async Task<{Constants.ContractResultFullName}> ProcessAsync({metadata.FullyQualifiedName} contract, System.Threading.CancellationToken ct = default)");
             iw.WriteLineAndIncrease("{");
 
             var endpoint = metadata.Endpoint;

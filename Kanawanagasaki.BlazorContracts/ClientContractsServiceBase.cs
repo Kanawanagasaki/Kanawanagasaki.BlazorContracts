@@ -14,10 +14,10 @@ public abstract class ClientContractsServiceBase
     protected abstract HttpClient Http { get; }
     protected abstract JsonSerializerOptions JsonOptions { get; }
 
-    private Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    protected virtual Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         => Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-    protected async Task<ContractResult<T>> ProcessCoreAsync<T>(HttpRequestMessage request, CancellationToken ct = default)
+    protected virtual async Task<ContractResult<T>> ProcessCoreAsync<T>(HttpRequestMessage request, CancellationToken ct = default)
     {
         static ContractResult<T> factory(int s, string? e) => new(s, e);
 
@@ -36,7 +36,7 @@ public abstract class ClientContractsServiceBase
         }
     }
 
-    protected async Task<ContractResult> ProcessCoreAsync(HttpRequestMessage request, CancellationToken ct = default)
+    protected virtual async Task<ContractResult> ProcessCoreAsync(HttpRequestMessage request, CancellationToken ct = default)
     {
         static ContractResult factory(int s, string? e) => new(s, e);
 
@@ -55,7 +55,7 @@ public abstract class ClientContractsServiceBase
         }
     }
 
-    protected async Task<DisposableContractResult<T>> ProcessDisposableCoreAsync<T>(HttpRequestMessage request, CancellationToken ct = default)
+    protected virtual async Task<DisposableContractResult<T>> ProcessDisposableCoreAsync<T>(HttpRequestMessage request, CancellationToken ct = default)
     {
         static DisposableContractResult<T> factory(int s, string? e) => new(s, e);
 
@@ -82,7 +82,7 @@ public abstract class ClientContractsServiceBase
         }
     }
 
-    protected async Task<ContractResult<IAsyncEnumerable<SseItem<TItem?>>>> ProcessSseCoreAsync<TItem>(HttpRequestMessage request, CancellationToken ct = default)
+    protected virtual async Task<ContractResult<IAsyncEnumerable<SseItem<TItem?>>>> ProcessSseCoreAsync<TItem>(HttpRequestMessage request, CancellationToken ct = default)
     {
         static ContractResult<IAsyncEnumerable<SseItem<TItem?>>> factory(int s, string? e) => new(s, e);
 
