@@ -1,4 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
@@ -10,6 +11,10 @@
 		<Version>1.1.0</Version>
 		<Authors>Kanawanagasaki</Authors>
 		<Description>Blazor contracts</Description>
+		<PackageProjectUrl>https://github.com/Kanawanagasaki/Kanawanagasaki.BlazorContracts</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/Kanawanagasaki/Kanawanagasaki.BlazorContracts</RepositoryUrl>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -21,5 +26,10 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.13" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="../README.md" Pack="true" PackagePath="" />
+		<None Include="../LICENSE.txt" Pack="true" PackagePath="" />
 	</ItemGroup>
 </Project>
