@@ -12,9 +12,9 @@ Blazor WASM runs in the browser, while Blazor Server and SSR are server-rendered
 
 There are two NuGet packages:
 
-[![NuGet package](https://img.shields.io/nuget/v/Kanawanagasaki.BlazorContracts.svg) ^Kanawanagasaki.BlazorContracts^](https://www.nuget.org/packages/Kanawanagasaki.BlazorContracts)
+[![NuGet package](https://img.shields.io/nuget/v/Kanawanagasaki.BlazorContracts.svg) Kanawanagasaki.BlazorContracts](https://www.nuget.org/packages/Kanawanagasaki.BlazorContracts)
 
-[![NuGet package](https://img.shields.io/nuget/v/Kanawanagasaki.BlazorContracts.SourceGenerator.svg) ^Kanawanagasaki.BlazorContracts.SourceGenerator^](https://www.nuget.org/packages/Kanawanagasaki.BlazorContracts.SourceGenerator)
+[![NuGet package](https://img.shields.io/nuget/v/Kanawanagasaki.BlazorContracts.SourceGenerator.svg) Kanawanagasaki.BlazorContracts.SourceGenerator](https://www.nuget.org/packages/Kanawanagasaki.BlazorContracts.SourceGenerator)
 
 The `Kanawanagasaki.BlazorContracts` package provides the common logic and attributes required for the source generator to discover contracts.
 
